@@ -832,3 +832,70 @@ Priority recommendations for next phase:
 2. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
 3. Phase 12: Communication (Email, SMS, WhatsApp, templates)
 4. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core)
+
+---
+Task ID: 11-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 11 — Finance & Intelligence (Revenue Reports, Collections, Tax/GST).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 5 policy pages working. Confirmed /finance/revenue returned 404 (Phase 11 not started). Finance module was disabled by default.
+- Phase 11.1 — Prisma schema additions:
+  * CollectionTask model: subscriberId, invoiceId, type (reminder/warning/suspension_notice/final_notice), status (pending/contacted/resolved/escalated), amount, dueDate, daysOverdue, contactMethod, contactNotes, contactedAt, resolvedAt, assignedTo.
+  * Added relations to Tenant, Subscriber, Invoice models.
+  * Changed finance module defaultEnabled to true in catalog. Pushed schema + regenerated Prisma client.
+- Phase 11.2 — Finance APIs:
+  * GET /api/v1/finance — revenue dashboard: total revenue, MRR, ARR, ARPU, outstanding amount, overdue amount, monthly breakdown (fills missing months with zero), revenue by payment method (pie data), revenue by gateway (bar data). Range: 3m/6m/ytd/12m/all.
+  * GET /api/v1/collections — paginated overdue/partial/issued invoices with subscriber contact info, balance due, days overdue calculation.
+  * PATCH /api/v1/collections — collection actions: mark_contacted, mark_resolved, escalate. Creates CollectionTask record with contact method, notes, timestamps. Records audit.
+  * GET /api/v1/tax — tax/GST summary: total subtotal, total tax, total revenue, avg tax rate, monthly breakdown with per-month tax rate calculation.
+- Phase 11.3 — Revenue Reports page (/finance/revenue):
+  * Range selectors: 3m, 6m, YTD, 12 Months, All Time.
+  * KPI cards: Total Revenue, MRR (with ARR hint), Outstanding (with invoice count), ARPU (with active subscriber count).
+  * Monthly Revenue bar chart (Recharts BarChart with brand red bars, $K formatter).
+  * Revenue by Payment Method pie chart (Recharts PieChart with multi-color cells).
+  * Revenue by Gateway bar list (progress bars, sorted by amount).
+  * Additional stats: Total Invoices, This Month Revenue, Overdue Amount.
+- Phase 11.4 — Collections page (/finance/collections):
+  * DataTable: invoice #, subscriber (name+ID+phone+email), balance due (red), due date with days overdue calculation, contact info, status badge.
+  * Stat tiles: Outstanding, Overdue, Critical (>7d) amount, Total Due.
+  * Contact action dialog: contact method dropdown (phone/email/SMS/WhatsApp/visit), contact notes textarea, Escalate + Mark Contacted buttons.
+  * Quick Resolve action (marks as resolved without dialog).
+  * Filter: status (all/overdue/partial/issued).
+- Phase 11.5 — Tax/GST page (/finance/tax):
+  * Range selectors: 3m, 6m, YTD, 12 Months.
+  * KPI cards: Total Subtotal, Total Tax Collected, Total Revenue (incl. tax), Avg Tax Rate.
+  * Monthly Tax Breakdown bar chart (subtotal vs tax, grouped bars).
+  * Monthly Tax Details table with totals row: month, subtotal, tax amount, total, tax rate.
+- Phase 11.6 — Module enablement:
+  * Enabled finance module for demo tenant via script.
+  * Verified Finance nav appears in sidebar: Revenue Reports, Collections, Tax / GST.
+
+Stage Summary:
+- Phase 11 (Finance & Intelligence) is COMPLETE and verified end-to-end with agent-browser.
+- All 3 finance pages render with real data:
+  * /finance/revenue — charts (bar+pie), KPIs, gateway breakdown bars
+  * /finance/collections — 5 overdue invoices with contact actions (mark contacted/resolve/escalate)
+  * /finance/tax — 13-row monthly tax breakdown table with chart
+- Lint: 0 errors. Dev server healthy.
+- Architecture: real-time revenue aggregation from Payment records, monthly bucketing with zero-fill for missing months, tax rate calculation per month, collection task lifecycle (pending → contacted → resolved/escalated), all tenant-scoped.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 11 (Finance & Intelligence): COMPLETE ✓
+- Phase 10/12/13 (Devices, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 12: Communication (Email, SMS, WhatsApp, templates, notification rules) — adapter architecture
+2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
+3. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core)
+4. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)
