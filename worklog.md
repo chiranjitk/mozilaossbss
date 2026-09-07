@@ -899,3 +899,79 @@ Priority recommendations for next phase:
 2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
 3. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core)
 4. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)
+
+---
+Task ID: 12-complete
+Agent: lead-architect (continued)
+Task: Phase 12 — Communication (Email, SMS, WhatsApp, Templates, Rules).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker needed restart (Prisma symlink fix). .env was missing NEXTAUTH_SECRET — restored it.
+- Phase 12.1 — Prisma schema additions (3 new models):
+  * NotificationTemplate: name, channel (email/sms/whatsapp/push), subject, body (with {{variable}} placeholders), variables (auto-extracted), language, status.
+  * NotificationRule: name, event (e.g. subscriber.created, invoice.paid), templateId, channel, recipient (subscriber/admin/custom), customRecipient, enabled, delayMinutes.
+  * CommunicationLog: templateId, channel, recipient, subject, body (rendered), status (pending/sent/failed/delivered), error, sentAt, deliveredAt.
+  * Added relations to Tenant + NotificationTemplate. Pushed schema + regenerated Prisma client.
+- Phase 12.2 — Communication adapter interface (src/core/communication/adapters.ts):
+  * ChannelAdapter interface: send(), isConfigured() — each channel implements this.
+  * EmailAdapter: SMTP-based (simulated in sandbox). Requires smtpHost, smtpPort, smtpUser, smtpPassword.
+  * SmsAdapter: Twilio-based (simulated). Requires accountSid, authToken, fromNumber.
+  * WhatsAppAdapter: WhatsApp Business Cloud API (simulated). Requires apiToken, phoneNumberId.
+  * PushAdapter: FCM-based (simulated). Requires fcmServerKey.
+  * renderTemplate(): replaces {{variables}} with values.
+  * extractVariables(): auto-extracts variable names from template body.
+  * ADAPTERS registry + getChannelAdapter() + listChannelAdapters().
+- Phase 12.2 — Communication APIs:
+  * GET/POST /api/v1/templates (paginated list with auto-extracted variables, create with duplicate check).
+  * GET/PATCH/DELETE /api/v1/templates/[id] (PATCH supports send_test action — renders template with test vars, sends via adapter, logs to CommunicationLog).
+  * GET/POST /api/v1/notification-rules (paginated list with template join, create with template validation).
+  * GET/PATCH/DELETE /api/v1/notification-rules/[id] (update enabled/event/template/recipient/delay).
+- Phase 12.3 — Templates page (/communication/templates):
+  * DataTable: name with channel-colored icon (email=brand, sms=success, whatsapp=info, push=warning), channel badge, variables (auto-extracted {{var}} badges), status badge, created time.
+  * Stat tiles: Total, Email, SMS, WhatsApp counts.
+  * Create/Edit dialog: name, channel select, subject (email only), body textarea with variable placeholder hint, language, status.
+  * Send Test action: dialog with recipient input, sends test via adapter, logs result.
+  * Delete confirmation.
+- Phase 12.4 — Notification Rules page (/communication/rules):
+  * DataTable: name, event (mono brand), mapping (event → template with ArrowRight icon), channel badge, delay (Immediate or Xm), enabled Switch, created time.
+  * Stat tiles: Total Rules, Active, Unique Events.
+  * Create/Edit dialog: name, event dropdown (16 events from subscriber/invoice/payment/session/complaint/nas/alert), template select (auto-sets channel), channel, recipient (subscriber/admin/custom), custom recipient, delay minutes, enabled.
+  * Enable/disable toggle via Switch.
+  * Delete confirmation.
+- Phase 12.5 — Seed data:
+  * Enabled communication module for demo tenant.
+  * 5 templates: Welcome Email, Invoice Generated Email, Payment Confirmation SMS, Suspension Notice WhatsApp, Session Connected Push.
+  * 5 rules: Welcome on Signup, Invoice Email, Payment SMS (5min delay), Suspension WhatsApp, Session Push (disabled).
+  * 3 communication logs: 1 sent, 1 delivered, 1 failed (SMTP timeout).
+- Fixed bugs during QA:
+  * JSX parsing error: `{{firstName}}` in JSX attributes interpreted as JSX expressions → removed double-brace placeholders from JSX attributes.
+  * .env file was missing NEXTAUTH_SECRET → restored all env variables.
+  * RADIUS worker Prisma client not found → symlinked prisma/ and .env from main project.
+
+Stage Summary:
+- Phase 12 (Communication) is COMPLETE and verified end-to-end with agent-browser.
+- All 2 communication pages render with real data:
+  * /communication/templates — 5 templates (email x2, sms, whatsapp, push) with auto-extracted variables
+  * /communication/rules — 5 rules (4 enabled, 1 disabled) with event→template mappings
+- Lint: 0 errors. Dev server healthy.
+- Architecture: ChannelAdapter interface with 4 implementations (Email/SMTP, SMS/Twilio, WhatsApp Business, Push/FCM), template rendering with variable extraction, event-driven rule engine (events → templates → channels).
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 11 (Finance & Intelligence): COMPLETE ✓
+- Phase 12 (Communication): COMPLETE ✓
+- Phase 10/13/14 (Devices, AI, Production Hardening): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core) — uses z-ai-web-dev-sdk
+2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
+3. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)

@@ -67,6 +67,9 @@ model Tenant {
   firewallRules FirewallRule[]
   timeAccessProfiles TimeAccessProfile[]
   collectionTasks CollectionTask[]
+  notificationTemplates NotificationTemplate[]
+  notificationRules NotificationRule[]
+  communicationLogs CommunicationLog[]
 }
 
 // =====================================================================
@@ -787,6 +790,73 @@ model CollectionTask {
   @@index([subscriberId])
   @@index([invoiceId])
   @@index([dueDate])
+}
+
+// =====================================================================
+// COMMUNICATION (Phase 12) — templates, rules, logs
+// =====================================================================
+
+model NotificationTemplate {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  channel     String   // email | sms | whatsapp | push
+  subject     String?  // for email
+  body        String   // template body with {{variables}}
+  variables   String?  // JSON array of available variable names
+  language    String   @default("en")
+  status      String   @default("active") // active | disabled
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, channel])
+  @@index([tenantId, status])
+  logs CommunicationLog[]
+  rules NotificationRule[]
+}
+
+model NotificationRule {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  event        String   // subscriber.created, invoice.paid, session.started, etc.
+  templateId   String
+  template     NotificationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  channel      String   // email | sms | whatsapp | push
+  recipient    String   @default("subscriber") // subscriber | admin | custom
+  customRecipient String? // email/phone if recipient=custom
+  enabled      Boolean  @default(true)
+  delayMinutes Int      @default(0) // delay before sending
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+  @@index([event])
+}
+
+model CommunicationLog {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  templateId   String?
+  template     NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  ruleId       String?
+  channel      String   // email | sms | whatsapp | push
+  recipient    String   // email or phone
+  subject      String?
+  body         String   // rendered body
+  status       String   @default("pending") // pending | sent | failed | delivered
+  error        String?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([channel, status])
+  @@index([createdAt])
 }
 
 // =====================================================================
