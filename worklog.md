@@ -589,3 +589,94 @@ Priority recommendations for next phase:
 2. Phase 8: Payments (gateway abstraction, adapters, reconciliation) — builds on billing
 3. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall)
 4. Phase 10: Device Management (TR-069, MikroTik, SNMP)
+
+---
+Task ID: 6-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 6 — Monitoring (Bandwidth, Traffic Analytics, Alerts, Uptime & Latency, Syslog).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 9 operations pages working. Confirmed /monitoring/bandwidth returned 404 (Phase 6 not started).
+- Phase 6.1 — Prisma schema additions (3 new models):
+  * MetricData: metric, value, unit, source, nasId, recordedAt — time-series data for bandwidth/sessions/cpu/memory/latency.
+  * Alert: alertNo, title, description, severity (info/warning/error/critical), status (active/acknowledged/resolved/suppressed), category, source, threshold, currentValue, triggeredAt, acknowledgedAt/By, resolvedAt, resolution.
+  * SyslogEntry: facility, severity (8 levels), priority, message, hostname, sourceIp, nasId, tag, receivedAt.
+  * Added relations to Tenant model. Pushed schema + regenerated Prisma client.
+- Phase 6.2 — Monitoring repository (src/core/repositories/monitoring/index.ts):
+  * recordMetric — insert a single metric data point.
+  * getMetricSeries — time-series query with interval bucketing (5min/1min/60min) and aggregation (avg per interval).
+  * getCurrentMetrics — latest value per metric (distinct).
+  * getTopTalkers — top N subscribers by bandwidth from ActiveSession octets.
+  * getTrafficByNas — aggregate traffic per NAS device from active sessions.
+  * listAlerts — paginated, filtered by status/severity/category/search.
+  * acknowledgeAlert / resolveAlert — lifecycle transitions with timestamps.
+  * listSyslog — paginated, filtered by severity/facility/nasId/search.
+  * getUptimeStats — uptime % and avg latency from metrics + alert count.
+- Phase 6.2 — Monitoring APIs:
+  * GET /api/v1/metrics — supports ?view=dashboard (returns current metrics + series + top talkers + traffic by NAS) or time-series only. Range: 1h/6h/24h/7d/30d. Configurable interval.
+  * GET /api/v1/alerts — paginated alert list with status/severity/category filters.
+  * PATCH /api/v1/alerts/[id] — acknowledge or resolve with resolution notes. Emits ALERT_ACKNOWLEDGED event + audit.
+  * GET /api/v1/syslog — paginated syslog entries with severity/facility/nasId filters.
+- Phase 6.3 — Bandwidth page (/monitoring/bandwidth):
+  * Real-time bandwidth chart (Recharts AreaChart) with 5-minute interval data. Auto-refresh every 10s (toggleable Live/Paused).
+  * Range selectors: 1h, 6h, 24h, 7d, 30d.
+  * KPI cards: Download Mbps, Upload Mbps, Active Sessions (with icons + accent colors).
+  * Traffic by NAS section with progress bars showing bandwidth distribution.
+  * Verified E2E: shows 48.2 Mbps download, range buttons work, chart renders with real metric data.
+- Phase 6.4 — Traffic Analytics page (/monitoring/traffic):
+  * Top Talkers card: ranked list of subscribers by bandwidth consumption with progress bars (1st=brand, 2nd=brand/70, rest=brand/40), shows username + NAS + duration + total bytes.
+  * NAS Traffic Breakdown card: per-NAS traffic with progress bars, session count, download/upload/total.
+  * Summary stats: Total Download, Total Upload, Active Sessions, Top Talkers count.
+  * Auto-refresh every 15s.
+- Phase 6.5 — Alerts page (/monitoring/alerts):
+  * DataTable with severity icon (color-coded: error/critical=red, warning=yellow, info=blue), alert #, title+description, severity badge, source, triggered time, status badge.
+  * Stat tiles: Total, Active, Acknowledged, Resolved.
+  * Acknowledge and Resolve actions (resolve shows dialog with resolution notes).
+  * Filters: status dropdown, severity dropdown, search.
+- Phase 6.6 — Uptime & Latency page (/monitoring/uptime):
+  * Latency trend chart (Recharts LineChart) over selected time range.
+  * KPI cards: Uptime %, Avg Latency, Incidents (24h), Packet Loss.
+  * SLA Compliance card: uptime target vs current, max response time, compliance status (Compliant/At Risk).
+  * Performance Summary card: avg/p95 latency, active sessions, total bandwidth.
+  * Range selectors: 1h/6h/24h/7d/30d. Auto-refresh every 30s.
+- Phase 6.7 — Syslog page (/monitoring/syslog):
+  * DataTable with severity badge (color-coded 8 levels: emergency/alert/critical/error=red, warning=yellow, notice/info/debug=gray), facility badge, message with tag prefix, source (hostname + IP), timestamp.
+  * Stat tiles: Total Logs, Errors, Warnings, Info.
+  * Filters: severity dropdown (8 levels), facility dropdown, search.
+  * 50 rows per page (denser than other pages for log viewing).
+- Phase 6.8 — Seed data:
+  * Enabled monitoring module for demo tenant.
+  * 1,728 metric data points (24h of 5-minute interval data for 6 metrics: bandwidth_down, bandwidth_up, sessions, latency, cpu, memory). Realistic day/night traffic patterns.
+  * 3 alerts (1 active warning CPU high, 1 acknowledged info bandwidth spike, 1 resolved warning DNS latency).
+  * 12 syslog entries (auth, daemon, system, kernel, local0, local7 facilities with various severities — login, RADIUS, PPPoE, BGP, DHCP, firmware messages).
+- Fixed bugs during QA:
+  * Prisma client not regenerated after schema push → db.metricData was undefined → ran db:generate + dev server restart.
+  * Added missing useState import in uptime-client.
+
+Stage Summary:
+- Phase 6 (Monitoring) is COMPLETE and verified end-to-end with agent-browser.
+- All 5 monitoring pages render with real data:
+  * /monitoring/bandwidth — 48.2 Mbps download, real-time chart, range selectors, NAS traffic bars
+  * /monitoring/traffic — top talkers + NAS breakdown (0 bytes shown because seed sessions have 0 octets — real RADIUS accounting would populate these)
+  * /monitoring/alerts — 3 alerts (1 active, 1 acknowledged, 1 resolved) with acknowledge/resolve actions
+  * /monitoring/uptime — latency chart, SLA compliance, performance summary
+  * /monitoring/syslog — 12 log entries with severity colors and facility badges
+- Lint: 0 errors. Dev server healthy. RADIUS worker running.
+- Architecture: time-series metric storage with interval bucketing, alert lifecycle (active → acknowledged → resolved), syslog with standard facility/severity levels, all tenant-scoped with proper indexes for time-range queries.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 5/8/10-13 (Policy, Payments, Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 8: Payments (gateway abstraction, adapters, reconciliation) — builds on billing
+2. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrates with RADIUS attributes
+3. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
+4. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
