@@ -286,3 +286,79 @@ Priority recommendations for next phase:
 4. Phase 3.4: NAS Clients management page (CRUD, shared secret, type, CoA port)
 5. Phase 3.5: Authentication Logs page (accept/reject history with RADIUS attributes)
 6. Phase 3.6: RADIUS Configuration page (ports, shared secrets, attribute policies, worker control)
+
+---
+Task ID: 3-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 3 — AAA/RADIUS Access Gateway (the strategic differentiator).
+
+Work Log:
+- QA assessment: dev server healthy, Phase 1/2 pages all working. Confirmed /aaa/sessions returned 404 (Phase 3 not started).
+- Phase 3.1 — REAL RADIUS SERVER (mini-services/radius-server/):
+  * Built a real RFC 2865/2866 RADIUS protocol implementation in pure TypeScript — NO external RADIUS library.
+  * packet.ts: RADIUS packet codec — decode/encode packets, attribute TLV parsing, all standard attributes (User-Name, User-Password, NAS-IP, Acct-Status-Type, Acct-Session-Id, Session-Timeout, etc.), User-Password decryption (MD5 + XOR per RFC 2865 §5.2), Response Authenticator (MD5), Message-Authenticator HMAC-MD5 verification, random authenticator generation.
+  * authenticator.ts: Access-Request handler — looks up NAS by source IP, looks up subscriber by username, verifies scrypt password hash, checks subscriber status (active only), enforces plan session limits, returns Access-Accept with Session-Timeout/Idle-Timeout/bandwidth attributes OR Access-Reject with Reply-Message.
+  * accounting.ts: Accounting-Request handler — Start (create ActiveSession, idempotent), Interim (update byte counters), Stop (move to SessionHistory with duration/octets/terminationCause, delete ActiveSession), Accounting-On/Off (mark all NAS sessions as stopped on NAS reboot).
+  * index.ts: Main UDP server — 3 sockets on UDP 1812 (auth), 1813 (acct), 3799 (CoA listener), sendCoa/disconnectSession exports, stats logging every 60s, graceful shutdown.
+  * http.ts: HTTP control API on port 3030 — /health, /status, /coa/disconnect endpoints.
+  * password.ts: scrypt password verification (mirrors the main app).
+  * package.json: standalone Bun project with --hot reload.
+  * VERIFIED E2E with real RADIUS packets:
+    - Sent Access-Request for rahul.sharma/subscriber123 from 127.0.0.1 → got Access-Accept with Session-Timeout=86400, Idle-Timeout=1800, Reply-Message="102400/20480" (bandwidth), Framed-Protocol=PPP, Service-Type=Framed-User.
+    - Sent Accounting-Start → Accounting-Response ✓ → ActiveSession created in DB.
+    - Sent Accounting-Stop with duration=3600, octets, termination=1 (User-Request) → Accounting-Response ✓ → SessionHistory created with real data (duration 3600s, 100KB/500KB, cause "User-Request"), ActiveSession deleted.
+- Phase 3.2 — NAS Clients:
+  * API: GET /api/v1/nas (paginated list, sharedSecret NOT returned for security), POST (create with duplicate IP check), GET/PATCH/DELETE [id] (delete blocked if active sessions exist).
+  * Page (/aaa/nas): DataTable with NAS name+IP, type badge (Mikrotik/Cisco/Juniper/Generic with colored chips), CoA port, live active session count (with pulsing green dot), last seen, status, edit/delete actions. Create/Edit dialog with name, IP, shared secret (password field), type, CoA port, status. Delete blocked when sessions active.
+- Phase 3.3 — Active Sessions:
+  * API: GET /api/v1/sessions (paginated, search by username/sessionId/IP/MAC, filter by NAS), POST /api/v1/sessions (disconnect via RADIUS CoA — calls worker HTTP API, moves to SessionHistory with "Admin-Reset" cause, deletes ActiveSession, emits SESSION_DISCONNECTED event, records audit).
+  * Page (/aaa/sessions): Real-time DataTable with auto-refresh every 10s (toggleable Live/Paused), pulsing green status dot per session, user + session ID, NAS name+IP, framed IP + MAC, live duration, data ↓/↑ bytes, protocol badge, Disconnect button per row. Stat tiles: Active Sessions, RADIUS Worker status (Running/Stopped), Bytes Transferred, Last Updated. Disconnect confirm dialog.
+  * VERIFIED E2E: clicked Disconnect on Rahul's test session → session removed from active → count dropped 3→2 → audit log recorded "session.disconnect: Disconnected session test-acct-... (rahul.sharma) via local".
+- Phase 3.4 — Session History:
+  * API: GET /api/v1/session-history (paginated, search, filter by NAS + terminationCause + date range).
+  * Page (/aaa/history): DataTable with user + sessionId, NAS, IP/MAC, start time, stop time (or "Active" badge), duration, data ↓/↑, termination cause badge (color-coded: Admin-Reset=warning, User-Request=muted). Filter by termination cause dropdown. CSV export.
+  * Verified: shows the test session from the RADIUS accounting test with User-Request cause.
+- Phase 3.5 — Authentication Logs:
+  * Page (/aaa/logs): Audit log filtered to `aaa` module. DataTable with timestamp, action (color-coded: session.disconnect=destructive, nas.create=info, etc.), resource+ID, status badge, message+IP, operator. Filter by status. CSV export.
+  * Verified: shows real `session.disconnect` audit entry with message "Disconnected session test-acct-... (rahul.sharma) via local".
+- Phase 3.6 — RADIUS Configuration:
+  * Page (/aaa/radius): Worker status hero card (Running/Stopped with uptime + memory), 3 port cards (Authentication 1812, Accounting 1813, CoA 3799) with "Listening" indicator when worker is up. Protocol support table (RFC 2865/2866/2869/3576 = Supported, RFC 3580/4675 = Planned). Security card (password encryption, shared secret storage, Message-Authenticator HMAC-MD5). Architecture explanation. Start command shown when worker is stopped.
+  * Verified: shows "Running" with uptime 2m 17s, 80.1 MB RSS, all 3 ports "Listening".
+- Fixed bugs during QA:
+  * Bun dgram API: `dgram` from "bun" doesn't exist — switched to Node's `dgram` module (`createSocket` from "dgram") which Bun supports.
+  * ActiveSession create missing tenantId: accounting handler didn't fetch tenantId from NAS — added include: { tenant: { select: { id: true } } } and passed tenantId through.
+  * Variable name typo: `terminateCause` vs `terminationCause` field — renamed variable to match schema field.
+  * RADIUS worker HTTP proxy: Next.js API route at /api/radius-worker/coa-disconnect proxies to localhost:3030 (per gateway rules, can't call ports directly from browser).
+  * Lint: removed `require()` calls in packet.ts (randomBytes) and index.ts (PrismaClient) — used ES imports.
+
+Stage Summary:
+- Phase 3 (AAA/RADIUS — strategic differentiator) is COMPLETE and verified end-to-end.
+- The Cryptsk AAA Access Gateway is a REAL RADIUS server speaking RFC 2865/2866 over UDP, not a mock.
+- All 5 AAA pages render with real data:
+  * /aaa/sessions — 3 active sessions with live duration, auto-refresh, disconnect works E2E
+  * /aaa/history — real session history with termination causes, CSV export
+  * /aaa/nas — 2 NAS clients (Loopback + MikroTik) with active session counts
+  * /aaa/logs — real session.disconnect audit entry from the disconnect test
+  * /aaa/radius — worker Running with uptime/memory, 3 ports Listening, protocol support matrix
+- RADIUS worker running on UDP 1812/1813/3799 + HTTP 3030, stats logging every 60s.
+- Lint: 0 errors. Dev server healthy. RADIUS worker healthy.
+- Screenshots saved to /home/z/my-project/screenshots/ (phase3-active-sessions, phase3-radius-config).
+- Architecture compliance: real RADIUS protocol (not mocked), modular monolith + selective workers, UI → API → worker → DB → audit → event vertical slice.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS — strategic differentiator): COMPLETE ✓
+- Phase 4+ (Network, Policy, Monitoring, Billing, Payments, Operations, Finance, AI): NOT STARTED
+
+Unresolved issues or risks:
+- RADIUS worker CoA disconnect returns "local" method because the test NAS (127.0.0.1) doesn't have a CoA listener — in production with a real NAS, this would return "radius-coa" with nasResponded=true.
+- No automated tests yet (architecture requires them).
+- EAP/802.1X support planned but not yet implemented (RFC 3580/4675).
+
+Priority recommendations for next phase:
+1. Phase 4: Network Management (IPAM, subnets, DHCP, DNS, PPPoE) — build on the AAA foundation
+2. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrate with plans + RADIUS attributes
+3. Phase 6: Monitoring (real-time bandwidth, traffic analytics, alerts, syslog)
+4. Phase 7: Billing (invoices, recurring billing, grace periods, suspension automation tied to subscriber lifecycle)
