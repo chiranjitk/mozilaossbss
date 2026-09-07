@@ -758,3 +758,77 @@ Priority recommendations for next phase:
 2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
 3. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
 4. Phase 12: Communication (Email, SMS, WhatsApp, templates)
+
+---
+Task ID: 5-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 5 — Policy & QoS (Bandwidth Profiles, QoS Queues, Firewall Rules, Time Access).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 8 payments pages working. Confirmed /policy/bandwidth returned 404 (Phase 5 not started). Policy module was disabled by default.
+- Phase 5.1 — Prisma schema additions (4 new models):
+  * BandwidthProfile: name, downloadSpeed/uploadSpeed (Kbps), downloadBurst/uploadBurst, burstThreshold, burstTime, priority (1-8), status, assignedCount.
+  * QosQueue: name, type (pfifo/bfifo/codel/fq_codel/priority), priority, rateLimit, ceilLimit, quantum, status.
+  * FirewallRule: name, action (accept/drop/reject/masquerade), chain (input/output/forward), protocol, srcAddress, dstAddress, srcPort, dstPort, interface, direction, priority, enabled, log.
+  * TimeAccessProfile: name, schedule (JSON with per-day time windows), timezone, action (allow/deny outside schedule), status.
+  * Added relations to Tenant. Pushed schema + regenerated Prisma client.
+- Phase 5.2 — Policy APIs (8 routes):
+  * GET/POST /api/v1/bandwidth-profiles + GET/PATCH/DELETE [id]
+  * GET/POST /api/v1/qos-queues + GET/PATCH/DELETE [id]
+  * GET/POST /api/v1/firewall-rules + GET/PATCH/DELETE [id]
+  * GET/POST /api/v1/time-access + GET/PATCH/DELETE [id]
+  * All use requireModulePermission with policy.* permissions, recordAudit on mutations.
+- Phase 5.3 — Bandwidth Profiles page (/policy/bandwidth):
+  * DataTable: name+description, download (with TrendingDown icon), upload (with TrendingUp icon), burst (↓/↑), priority badge (color-coded P1=red to P8=gray), assigned count, status.
+  * Stat tiles: Total, Active, With Burst, Assignments.
+  * Create/Edit dialog: name, description, download/upload speed (Kbps with live Mbps conversion hint), burst settings (download/upload burst, threshold, time), priority (P1-P8 with "Highest"/"Lowest" labels), status.
+  * Delete confirmation.
+- Phase 5.4 — QoS Queues page (/policy/qos):
+  * DataTable: name+description, type badge (color-coded: CoDel=brand, FQ-CoDel=success, Priority=warning), priority badge, rate limit, ceiling, status.
+  * Stat tiles: Total, Active, Rate-Limited.
+  * Create/Edit dialog: name, description, type, priority, rate limit, ceiling, status.
+- Phase 5.5 — Firewall Rules page (/policy/firewall):
+  * DataTable: priority #, name+description, action badge (color-coded: accept=green, drop/reject=red, masquerade=warning), chain badge, match (protocol src→dst with ports), log badge, enabled Switch.
+  * Stat tiles: Total, Enabled, Disabled, Blocking (drop/reject rules).
+  * Filters: action dropdown, chain dropdown.
+  * Create/Edit dialog: name, description, action, chain, protocol, src/dst address, src/dst port, interface, priority, enabled, log switches.
+  * Enable/disable toggle via Switch.
+- Phase 5.6 — Time Access page (/policy/time-access):
+  * DataTable: name+description, schedule (formatted: "Every day: 08:00-22:00" or per-day), timezone, action badge (allow=green, deny=red), status.
+  * Stat tiles: Total, Active, Deny Outside.
+  * Create/Edit dialog: name, description, per-day schedule (Switch to enable day + time inputs for start/end), timezone, action (allow/deny), status.
+- Phase 5.7 — Seed data:
+  * Enabled policy module for demo tenant (also changed defaultEnabled to true in catalog).
+  * 5 bandwidth profiles: 50 Mbps Standard, 100 Mbps Premium (with burst), 25 Mbps Basic, 200 Mbps Enterprise (P1), Throttled 512 Kbps.
+  * 4 QoS queues: VoIP Priority (P1, 1Mbps), Gaming Low Latency (FQ-CoDel P2), Standard Data (FQ-CoDel P5), Background Bulk (PFIFO P8).
+  * 7 firewall rules: allow established, block SMTP, block malware C2, allow DNS, allow HTTPS, masquerade NAT, block BitTorrent (disabled).
+  * 3 time access profiles: Business Hours (9-5 Mon-Fri, deny outside), Night Only (22:00-06:00, deny outside), 24/7 Full Access.
+
+Stage Summary:
+- Phase 5 (Policy & QoS) is COMPLETE and verified end-to-end with agent-browser.
+- All 4 policy pages render with real data:
+  * /policy/bandwidth — 5 profiles with speed/burst/priority visualization
+  * /policy/qos — 4 queues with type badges and rate limits
+  * /policy/firewall — 7 rules with action colors and enable/disable switches
+  * /policy/time-access — 3 profiles with formatted schedules
+- Lint: 0 errors. Dev server healthy.
+- Architecture: all APIs use apiRoute + requireModulePermission + recordAudit, all pages use AuthenticatedLayout + DataTable, models are tenant-scoped with proper indexes.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 10-13 (Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
+2. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
+3. Phase 12: Communication (Email, SMS, WhatsApp, templates)
+4. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core)
