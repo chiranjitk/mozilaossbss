@@ -1,0 +1,476 @@
+// =====================================================================
+// CRYPTSK PRISMA SCHEMA — Phase 0 Foundation
+// =====================================================================
+// Universal Core + Industry Modules architecture.
+// SQLite for dev sandbox. PostgreSQL-ready (no SQLite-coupled business logic).
+// All entities are tenant-aware where multi-tenancy is meaningful.
+// Decimal-safe money via Prisma Decimal (never floating point).
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// CORE — TENANCY
+// =====================================================================
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  domain      String?
+  edition     String   @default("enterprise") // isp | enterprise | msp | hospitality | campus | telecom | datacenter | government
+  timezone    String   @default("UTC")
+  locale      String   @default("en")
+  currency    String   @default("USD")
+  status      String   @default("active") // active | suspended | locked
+  metadata    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  modules     ModuleState[]
+  auditLogs   AuditLog[]
+  settings    SystemSetting[]
+  notifications Notification[]
+  subscribers Subscriber[]
+  plans       Plan[]
+  nasClients  NasClient[]
+  activeSessions ActiveSession[]
+  sessionHistories SessionHistory[]
+  invoices    Invoice[]
+  payments    Payment[]
+  complaints  Complaint[]
+  technicians Technician[]
+}
+
+// =====================================================================
+// CORE — IDENTITY & RBAC
+// =====================================================================
+
+model User {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email           String   @unique
+  username        String   @unique
+  passwordHash    String
+  name            String?
+  avatarUrl       String?
+  phone           String?
+  status          String   @default("active") // active | disabled | locked | invited
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  failedAttempts  Int      @default(0)
+  lockedUntil     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userRoles       UserRole[]
+  auditLogs       AuditLog[]
+  sessions       ActiveSession[]   @relation("SessionOperator")
+  complaintsAssigned Complaint[]
+  technician      Technician?
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model Role {
+  id            String         @id @default(cuid())
+  tenantId      String?
+  name          String         @unique
+  description   String?
+  isSystem      Boolean        @default(false) // system roles cannot be deleted
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  permissions   RolePermission[]
+  users         UserRole[]
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique // e.g. billing.invoice.read, subscriber.create
+  module      String   // billing, subscriber, aaa, network, etc.
+  action      String   // read, create, update, delete, suspend, etc.
+  description String?
+  createdAt    DateTime @default(now())
+
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId      String
+  permissionId String
+  role        Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission  Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId   String
+  roleId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+// =====================================================================
+// CORE — MODULE REGISTRY (persisted enable/disable state)
+// =====================================================================
+
+model ModuleState {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  moduleId    String   // matches id in src/core/modules/registry.ts
+  enabled     Boolean  @default(false)
+  licensed    Boolean  @default(false)
+  licenseExpiry DateTime?
+  config      String?  // JSON-encoded module-specific config
+  health      String   @default("unknown") // healthy | degraded | down | unknown
+  workerStatus String  @default("stopped") // running | stopped | error
+  lastStartedAt DateTime?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, moduleId])
+  @@index([tenantId, enabled])
+}
+
+// =====================================================================
+// CORE — AUDIT LOG
+// =====================================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String   // e.g. subscriber.suspend
+  module      String
+  resource    String
+  resourceId  String?
+  requestId   String?
+  ipAddress   String?
+  userAgent   String?
+  oldValue     String? // JSON
+  newValue     String? // JSON
+  status       String  @default("success") // success | failure | error
+  message      String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([userId])
+  @@index([module, action])
+  @@index([resource, resourceId])
+}
+
+// =====================================================================
+// CORE — SYSTEM SETTINGS (key/value store, tenant-scoped)
+// =====================================================================
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key       String
+  value     String
+  category  String   @default("general") // general | billing | network | notification | ai | ...
+  encrypted Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@unique([tenantId, key])
+  @@index([category])
+}
+
+// =====================================================================
+// CORE — NOTIFICATIONS
+// =====================================================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String?  // null = broadcast to tenant
+  title     String
+  message   String
+  level     String   @default("info") // info | success | warning | error
+  category  String?  // system | billing | aaa | network | ...
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, userId, readAt])
+  @@index([createdAt])
+}
+
+// =====================================================================
+// CUSTOMER (Phase 2) — minimal stub now for dashboard KPIs
+// =====================================================================
+
+model Subscriber {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId   String   @unique // human-friendly ID
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  address      String?
+  status       String   @default("active") // active | suspended | terminated | pending
+  planId       String?
+  plan         Plan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
+  username     String?  @unique // RADIUS username
+  passwordHash String?  // RADIUS password (hashed)
+  metadata     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  activeSessions ActiveSession[]
+  sessionHistories SessionHistory[]
+  invoices    Invoice[]
+  payments    Payment[]
+  complaints  Complaint[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+}
+
+model Plan {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  code          String   @unique
+  description   String?
+  price         Decimal  
+  currency      String   @default("USD")
+  billingCycle  String   @default("monthly") // monthly | quarterly | yearly | one_time
+  downloadSpeed Int?     // kbps
+  uploadSpeed   Int?     // kbps
+  dataCap       Int?     // MB, null = unlimited
+  sessionLimit  Int      @default(1)
+  taxRate       Decimal  @default(0) 
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscribers   Subscriber[]
+
+  @@index([tenantId, status])
+}
+
+// =====================================================================
+// AAA (Phase 3) — stubs for dashboard
+// =====================================================================
+
+model NasClient {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  ipAddress    String   @unique
+  sharedSecret String
+  type         String   @default("generic") // mikrotik | cisco | generic | ...
+  coaPort      Int      @default(3799)
+  status       String   @default("active")
+  lastSeenAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  activeSessions ActiveSession[]
+  sessionHistories SessionHistory[]
+
+  @@index([tenantId, status])
+}
+
+model ActiveSession {
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessionId        String   @unique // RADIUS Acct-Session-Id
+  subscriberId     String?
+  subscriber       Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  nasId            String
+  nas              NasClient @relation(fields: [nasId], references: [id], onDelete: Cascade)
+  operatorId       String?
+  operator         User?    @relation("SessionOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  username         String
+  nasIpAddress     String
+  framedIpAddress   String?
+  nasPortId        String?
+  callingStationId  String? // MAC
+  calledStationId   String?
+  protocol         String? // PPP | PPPoE | Ethernet | Wireless
+  startTime        DateTime @default(now())
+  updateTime       DateTime @updatedAt
+  inputOctets      BigInt   @default(0)
+  outputOctets     BigInt   @default(0)
+  inputGigawords   Int      @default(0)
+  outputGigawords  Int      @default(0)
+  sessionTimeout   Int?     // seconds
+  status           String   @default("active") // active | stopped | expired
+  terminationCause String?
+  createdAt        DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([subscriberId])
+  @@index([nasId])
+  @@index([framedIpAddress])
+  @@index([username])
+  @@index([startTime])
+}
+
+model SessionHistory {
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessionId        String
+  subscriberId     String?
+  subscriber       Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  nasId            String
+  nas              NasClient @relation(fields: [nasId], references: [id], onDelete: Cascade)
+  username         String
+  nasIpAddress     String
+  framedIpAddress   String?
+  callingStationId  String?
+  startTime        DateTime
+  stopTime         DateTime?
+  duration         Int?     // seconds
+  inputOctets      BigInt   @default(0)
+  outputOctets     BigInt   @default(0)
+  terminationCause String?
+  createdAt        DateTime @default(now())
+
+  @@index([tenantId, startTime])
+  @@index([subscriberId])
+  @@index([nasId])
+  @@index([username])
+}
+
+// =====================================================================
+// BILLING / PAYMENTS (Phase 7-8) — stubs for dashboard
+// =====================================================================
+
+model Invoice {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number      String   @unique
+  subscriberId String?
+  subscriber  Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  issueDate   DateTime @default(now())
+  dueDate     DateTime
+  subtotal    Decimal  
+  taxAmount   Decimal  @default(0) 
+  total       Decimal  
+  amountPaid  Decimal  @default(0) 
+  status      String   @default("draft") // draft | issued | paid | partial | overdue | cancelled
+  currency    String   @default("USD")
+  items       String?  // JSON array of line items
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  payments    Payment[]
+
+  @@index([tenantId, status])
+  @@index([subscriberId])
+  @@index([dueDate])
+}
+
+model Payment {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number       String   @unique
+  invoiceId    String?
+  invoice      Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  subscriberId String?
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  amount       Decimal  
+  currency     String   @default("USD")
+  method       String   @default("manual") // cash | card | bank | upi | wallet | gateway | manual
+  gateway      String?  // stripe | razorpay | paypal | ...
+  gatewayRef   String?
+  status       String   @default("completed") // pending | completed | failed | refunded
+  receivedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([invoiceId])
+  @@index([subscriberId])
+}
+
+// =====================================================================
+// OPERATIONS (Phase 9) — stubs for dashboard
+// =====================================================================
+
+model Complaint {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticketNo    String   @unique
+  subscriberId String?
+  subscriber  Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  assignedTo  String?
+  assignee    User?    @relation(fields: [assignedTo], references: [id], onDelete: SetNull)
+  subject     String
+  description  String?
+  category     String?  // billing | network | technical | other
+  priority     String   @default("normal") // low | normal | high | urgent
+  status       String   @default("open") // open | in_progress | resolved | closed
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([assignedTo])
+}
+
+model Technician {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String?  @unique
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name        String
+  phone       String?
+  email       String?
+  employeeId  String?
+  status      String   @default("active") // active | busy | off_duty
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+// =====================================================================
+// EVENTS — internal event log (for async processing & replay)
+// =====================================================================
+
+model EventLog {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  type        String   // e.g. subscriber.created, payment.received, session.started
+  payload     String   // JSON
+  source      String?  // module that emitted
+  requestId   String?
+  processed   Boolean  @default(false)
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([type, processed, createdAt])
+  @@index([tenantId, createdAt])
+}
