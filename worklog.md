@@ -362,3 +362,89 @@ Priority recommendations for next phase:
 2. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrate with plans + RADIUS attributes
 3. Phase 6: Monitoring (real-time bandwidth, traffic analytics, alerts, syslog)
 4. Phase 7: Billing (invoices, recurring billing, grace periods, suspension automation tied to subscriber lifecycle)
+
+---
+Task ID: 4-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 4 — Network Management (IPAM, Subnets, DHCP, DNS, Interfaces).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running (uptime 2220s), Phase 3 AAA pages all working. Confirmed /network/ipam returned 404 (Phase 4 not started).
+- Phase 4.1 — Prisma schema additions (6 new models):
+  * Subnet: network, cidr, cidrNotation, gateway, DNS, VLAN, type (data/voice/management/guest/pppoe), status, address counts.
+  * IpAddress: subnetId, ipAddress (unique), status (available/allocated/reserved/excluded), assignedTo/Type, MAC, hostname, allocation metadata.
+  * DhcpLease: subnetId, ipAddress, MAC, hostname, clientId, leaseStart/End/Time, state (active/expired/released/declined).
+  * DnsZone: name (unique), type (forward/reverse), SOA serial/refresh/retry/expire/minimum, primaryNs, adminEmail, status.
+  * DnsRecord: zoneId, name, type (A/AAAA/CNAME/MX/TXT/NS/SRV/PTR), value, ttl, priority/weight/port, status.
+  * SystemInterface: name, type (ethernet/vlan/pppoe/bridge/loopback/wan), ipAddress (CIDR), MAC, VLAN, MTU, linkStatus, speed, duplex, rx/tx bytes/packets/errors.
+  * All models tenant-scoped with proper indexes. Schema pushed to SQLite.
+- Phase 4.2 — CIDR math utility (src/core/network/cidr.ts):
+  * Pure TypeScript, no external deps. IPv4 validation, IP↔int conversion, total/usable address calculation, network/broadcast address computation, first/last host, listUsableIps (with limit for large subnets), isIpInSubnet check.
+- Phase 4.2 — Subnet repository (src/core/repositories/network/subnet.ts):
+  * listSubnets (paginated, search across name/network/cidrNotation/description, filter by status/type).
+  * createSubnet (validates IP+CIDR, normalizes network address, checks duplicates, computes total/usable counts, auto-allocates IP pool for /24 or smaller).
+  * getSubnetById (with IP addresses), updateSubnet, deleteSubnet (blocks if allocated IPs or active leases).
+  * allocateIp (validates IP in subnet, marks as allocated, updates count), releaseIp (returns to available, decrements count).
+  * getIpamStats (total subnets, addresses, allocated, DHCP leases).
+- Phase 4.2 — Subnets API:
+  * GET /api/v1/subnets (paginated, with utilization %, DHCP lease count).
+  * POST /api/v1/subnets (create with validation, auto-allocate IPs option).
+  * GET/PATCH/DELETE /api/v1/subnets/[id].
+  * POST /api/v1/subnets/[id]/allocate (allocate an IP to subscriber/device).
+  * POST /api/v1/subnets/[id]/release (release an IP back to available).
+- Phase 4.2 — IPAM page (/network/ipam):
+  * DataTable with subnet name+CIDR, type badge (color-coded), gateway/VLAN, address counts (allocated/usable/total), utilization bar (color-coded: green/yellow/red based on %), DHCP lease count, status, edit/delete actions.
+  * Stat tiles: Subnets count, Usable IPs, Alated IPs, DHCP Leases.
+  * Create/Edit dialog: name, type, network+CIDR, gateway, VLAN, DNS, description, auto-allocate toggle.
+  * Status filter dropdown, search.
+- Phase 4.2 — Subnets page (/network/subnets):
+  * Visual card grid with subnet cards showing type-colored icon, name+CIDR, type badge, VLAN badge, utilization bar with color-coding, address stats, gateway, DHCP leases, description.
+  * Stat tiles + search + status filter.
+- Phase 4.3 — DHCP Leases:
+  * API: GET /api/v1/dhcp-leases (paginated, search by IP/MAC/hostname/clientId, filter by state).
+  * Page (/network/dhcp): DataTable with IP, MAC, hostname, subnet, lease duration, remaining time, state badge. State filter dropdown.
+- Phase 4.4 — DNS Zones:
+  * API: GET /api/v1/dns-zones (paginated), POST (create with duplicate check).
+  * GET/PATCH/DELETE /api/v1/dns-zones/[id] — zone detail with all records; PATCH handles record CRUD via { recordAction: "create"|"update"|"delete", record, recordId }.
+  * SOA serial auto-incremented on any zone/record change.
+  * Page (/network/dns): DataTable with zone name+type badge, SOA serial, primary NS, record count, status. Click row → zone detail dialog with record list (type-colored badges: A=brand, CNAME=info, MX=success, etc.) + add record form (name, type, value, TTL, priority for MX).
+- Phase 4.5 — System Interfaces:
+  * API: GET /api/v1/interfaces (paginated, search), POST (create).
+  * Page (/network/interfaces): DataTable with interface name (mono), type icon (color-coded: wan=warning, ethernet=brand, pppoe=success, etc.), IP/MAC, VLAN/MTU, link status (pulsing green for up), speed, traffic ↓/↑ bytes, errors, enabled/disabled status. Create dialog with name, type, IP, MAC, VLAN, MTU, description.
+- Phase 4.6 — Module enablement + seed data:
+  * Changed Network module defaultEnabled to true in catalog (new tenants get it by default).
+  * Enabled Network module for existing demo tenant via script.
+  * Seeded: 2 subnets (192.168.1.0/24 subscriber pool + 10.0.0.0/30 NAS uplink), 4 IP addresses (1 reserved gateway, 2 allocated to subscribers, 1 NAS), 1 active DHCP lease, 1 DNS zone (cryptsk.local) with 4 records (@, ns1, mail, www CNAME), 2 system interfaces (ether1 WAN uplink + ether2 subscriber LAN).
+- Fixed bugs during QA:
+  * Lucide icon `Subnet` doesn't exist → replaced with `Share2` alias in both IPAM and Subnets clients.
+  * SystemInterface model had no Prisma relation to NasClient → removed `include: { nas }` from query, return nasId directly.
+- Verified E2E with agent-browser:
+  * IPAM page: 2 subnets, 256 usable IPs, 3 allocated — both subnets render with utilization bars.
+  * DNS page: cryptsk.local zone visible in table.
+  * Interfaces page: ether1 (WAN Uplink) + ether2 (Subscriber LAN) render with traffic stats.
+  * Network nav appears in sidebar: IPAM, Subnets, DHCP, DNS, Interfaces.
+
+Stage Summary:
+- Phase 4 (Network Management) is COMPLETE and verified with agent-browser.
+- All 5 network pages render with real data:
+  * /network/ipam — 2 subnets with utilization bars, stat tiles, create dialog
+  * /network/subnets — visual card grid with utilization visualization
+  * /network/dhcp — DHCP lease table with state filter
+  * /network/dns — DNS zone table with zone detail dialog + record CRUD
+  * /network/interfaces — interface table with traffic stats + create dialog
+- Lint: 0 errors. Dev server healthy. RADIUS worker running (37min uptime).
+- Architecture: CIDR math utility (no external deps), subnet repository with allocation logic, DNS SOA serial auto-increment, all tenant-scoped.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5+ (Policy, Monitoring, Billing, Payments, Operations, Finance, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 7: Billing (invoices, recurring billing, grace periods, suspension automation) — completes the revenue loop
+2. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrates with RADIUS attributes
+3. Phase 6: Monitoring (real-time bandwidth, traffic analytics, alerts, syslog)
+4. Phase 8: Payments (gateway abstraction, adapters, reconciliation)

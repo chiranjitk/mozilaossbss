@@ -48,6 +48,12 @@ model Tenant {
   payments    Payment[]
   complaints  Complaint[]
   technicians Technician[]
+  subnets     Subnet[]
+  ipAddresses IpAddress[]
+  dhcpLeases  DhcpLease[]
+  dnsZones    DnsZone[]
+  dnsRecords  DnsRecord[]
+  systemInterfaces SystemInterface[]
 }
 
 // =====================================================================
@@ -473,4 +479,159 @@ model EventLog {
 
   @@index([type, processed, createdAt])
   @@index([tenantId, createdAt])
+}
+
+// =====================================================================
+// NETWORK MANAGEMENT (Phase 4) — IPAM, Subnets, DHCP, DNS, Interfaces
+// =====================================================================
+
+model Subnet {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  network     String   // e.g. 192.168.1.0
+  cidr        Int      // e.g. 24 (for /24)
+  cidrNotation String // computed "192.168.1.0/24" for quick lookups
+  gateway     String?
+  dnsPrimary  String?
+  dnsSecondary String?
+  vlanId      Int?
+  type        String   @default("data") // data | voice | management | guest | pppoe
+  status      String   @default("active") // active | reserved | exhausted | archived
+  description String?
+  totalAddresses Int   @default(0) // 2^(32-cidr)
+  usableAddresses Int @default(0) // total - 2 (network + broadcast)
+  allocatedCount Int   @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ipAddresses IpAddress[]
+  dhcpLeases  DhcpLease[]
+
+  @@unique([tenantId, cidrNotation])
+  @@index([tenantId, status])
+  @@index([tenantId, type])
+}
+
+model IpAddress {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subnetId    String
+  subnet      Subnet   @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  ipAddress    String   @unique
+  status      String   @default("available") // available | allocated | reserved | excluded
+  assignedTo  String?  // subscriberId or hostname or device name
+  assignedType String? // subscriber | nas | device | static | dhcp
+  macAddress  String?
+  hostname    String?
+  notes       String?
+  allocatedAt DateTime?
+  allocatedBy String?  // userId or "system"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([subnetId, status])
+  @@index([tenantId, status])
+  @@index([assignedTo])
+}
+
+model DhcpLease {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subnetId    String?
+  subnet      Subnet?  @relation(fields: [subnetId], references: [id], onDelete: SetNull)
+  ipAddress    String   @unique
+  macAddress  String
+  hostname    String?
+  clientId    String?  // DHCP Client Identifier
+  leaseStart  DateTime @default(now())
+  leaseEnd    DateTime
+  leaseTime   Int      // seconds
+  state       String   @default("active") // active | expired | released | declined
+  nasId       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, state])
+  @@index([subnetId])
+  @@index([macAddress])
+  @@index([leaseEnd])
+}
+
+model DnsZone {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String   @unique // e.g. example.com
+  type        String   @default("forward") // forward | reverse
+  soaSerial   Int      @default(1)
+  soaRefresh  Int      @default(3600)
+  soaRetry    Int      @default(900)
+  soaExpire   Int      @default(604800)
+  soaMinimum  Int      @default(86400)
+  primaryNs   String?  // primary nameserver
+  adminEmail  String?  // responsible person
+  status      String   @default("active") // active | disabled
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  records     DnsRecord[]
+
+  @@index([tenantId, status])
+}
+
+model DnsRecord {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zoneId      String
+  zone        DnsZone  @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  name        String   // record name (e.g. "www" or "@" for apex)
+  type        String   // A | AAAA | CNAME | MX | TXT | NS | SRV | PTR
+  value       String   // record value
+  ttl         Int      @default(3600)
+  priority    Int?     // for MX records
+  weight      Int?     // for SRV records
+  port        Int?     // for SRV records
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([zoneId, type])
+  @@index([tenantId, name])
+}
+
+model SystemInterface {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String   // e.g. ether1, wan0, pppoe-out1
+  displayName String?
+  type        String   @default("ethernet") // ethernet | vlan | pppoe | bridge | loopback | wan
+  ipAddress   String?  // primary IP (CIDR notation e.g. 192.168.1.1/24)
+  macAddress  String?
+  vlanId      Int?
+  mtu         Int      @default(1500)
+  enabled     Boolean  @default(true)
+  rxBytes     BigInt   @default(0)
+  txBytes     BigInt   @default(0)
+  rxPackets   BigInt   @default(0)
+  txPackets   BigInt   @default(0)
+  rxErrors    Int      @default(0)
+  txErrors    Int      @default(0)
+  linkStatus  String   @default("up") // up | down | unknown
+  speedMbps   Int?     // negotiated speed
+  duplex      String?  // full | half | auto
+  nasId       String?  // associated NAS device
+  description String?
+  lastUpdated DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+  @@index([nasId])
 }
