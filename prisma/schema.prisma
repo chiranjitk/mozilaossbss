@@ -61,6 +61,7 @@ model Tenant {
   metricData  MetricData[]
   alerts      Alert[]
   syslogEntries SyslogEntry[]
+  paymentGatewayConfigs PaymentGatewayConfig[]
 }
 
 // =====================================================================
@@ -422,12 +423,36 @@ model Payment {
   gateway      String?  // stripe | razorpay | paypal | ...
   gatewayRef   String?
   status       String   @default("completed") // pending | completed | failed | refunded
+  reconciled   Boolean  @default(false)
+  reconciledAt DateTime?
+  notes        String?
   receivedAt   DateTime @default(now())
   createdAt    DateTime @default(now())
 
   @@index([tenantId, status])
   @@index([invoiceId])
   @@index([subscriberId])
+  @@index([gateway, status])
+}
+
+model PaymentGatewayConfig {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String   // stripe | razorpay | paypal | manual | custom
+  displayName String?
+  adapter     String   // stripe | razorpay | paypal | manual
+  enabled     Boolean  @default(false)
+  isDefault   Boolean  @default(false)
+  config      String?  // JSON: apiKey, secretKey, webhookSecret, etc (encrypted fields marked)
+  supportedMethods String? // JSON array: ["card", "upi", "netbanking", "wallet"]
+  testMode    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, enabled])
 }
 
 model Voucher {

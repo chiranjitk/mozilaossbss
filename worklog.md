@@ -680,3 +680,81 @@ Priority recommendations for next phase:
 2. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrates with RADIUS attributes
 3. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
 4. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
+
+---
+Task ID: 8-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 8 — Payments (gateway abstraction, adapters, reconciliation).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 6 monitoring pages working. Confirmed /payments returned 404 (Phase 8 not started).
+- Phase 8.1 — Prisma schema additions:
+  * Added PaymentGatewayConfig model (name, displayName, adapter, enabled, isDefault, config JSON, supportedMethods, testMode, lastUsedAt). Unique constraint on [tenantId, name].
+  * Added reconciled, reconciledAt, notes fields to Payment model for reconciliation tracking.
+  * Added paymentGatewayConfigs relation to Tenant model. Pushed schema + regenerated Prisma client.
+- Phase 8.1 — Payment Gateway Adapter Interface (src/core/payments/adapters.ts):
+  * GatewayAdapter interface: createPayment, verifyWebhook, refund, isConfigured — each gateway implements this.
+  * ManualAdapter: for cash/bank/cheque payments, no external API, always configured.
+  * StripeAdapter: simulated createPayment (returns PaymentIntent ref), verifyWebhook, refund. Requires apiKey + webhookSecret.
+  * RazorpayAdapter: simulated createPayment (returns order ref), supports card/upi/netbanking/wallet/emi. Requires keyId + keySecret.
+  * PayPalAdapter: simulated createPayment (returns PAYID ref). Requires clientId + clientSecret.
+  * ADAPTERS registry + getAdapter(name) + listAdapters() for the catalog.
+  * Architecture: new gateways can be added by implementing GatewayAdapter — no changes to the payment service needed.
+- Phase 8.2 — Payments API:
+  * GET /api/v1/payments (paginated, search by number/subscriber/gatewayRef, filter by status/method/gateway). Includes subscriber + invoice relations.
+  * POST /api/v1/payments (record manual payment with auto PAY-YYYY-XXXX number, optional invoice linking — applies payment to invoice and updates status to paid/partial).
+  * Emits PAYMENT_RECEIVED + INVOICE_PAID events. Records audit.
+- Phase 8.2 — Payment Gateways API:
+  * GET /api/v1/payment-gateways (paginated list with adapter catalog).
+  * POST /api/v1/payment-gateways (create with duplicate name check, default flag management).
+  * GET/PATCH/DELETE /api/v1/payment-gateways/[id] (update enabled/default/testMode/config, delete).
+- Phase 8.2 — Reconciliation API:
+  * GET /api/v1/reconciliation (paginated, filter by unreconciled/reconciled/all, includes invoice matching info).
+  * POST /api/v1/reconciliation (bulk reconcile/unreconcile by paymentIds array, updates reconciled + reconciledAt).
+- Phase 8.3 — Payments page (/payments):
+  * DataTable with payment #, amount (currency), method badge (color-coded: cash=green, card=brand, bank=info, upi=warning), subscriber, invoice, gateway badge, status badge, reconciled icon, received time.
+  * Stat tiles: Total, Completed, Unreconciled, Total Amount.
+  * Record Payment dialog: amount, currency, method dropdown, subscriber ID, invoice ID, notes.
+  * Filters: status, method. Search by payment #/subscriber/gateway ref.
+- Phase 8.4 — Payment Gateways page (/payments/gateways):
+  * Available Adapters catalog card: shows all 4 adapters (Manual, Stripe, Razorpay, PayPal) with supported methods, required config fields, and configured status (green check or gray X).
+  * Configured gateways grid: cards with adapter-colored icon, name, DEFAULT/TEST badges, enable/disable Switch, supported methods badges, configured status, last used time.
+  * Add Gateway dialog: name, display name, adapter select, dynamic config fields (shows required fields per adapter with password inputs), test mode / enabled / default switches.
+- Phase 8.5 — Reconciliation page (/payments/reconciliation):
+  * DataTable with checkbox column (select all / individual), payment #, amount, method badge, subscriber, invoice (with paid/total), reconciled status icon, received time.
+  * Stat tiles: Total, Unreconciled, Reconciled, Pending Amount.
+  * Filter: unreconciled / reconciled / all.
+  * Bulk action bar: when payments selected, shows count + "Mark Reconciled" / "Mark Unreconciled" button.
+- Phase 8.6 — Seed data:
+  * Enabled payments module for demo tenant.
+  * 3 payment gateways: manual (default, enabled), razorpay (test mode, enabled, configured with test keys), stripe (test mode, disabled, configured with test keys).
+  * 4 additional payments: UPI via Razorpay (unreconciled), cash partial payment for overdue invoice (unreconciled), card via Razorpay (reconciled), failed card payment.
+- Fixed bugs during QA:
+  * Prisma client not regenerated after schema push → db.paymentGatewayConfig was undefined → ran db:generate + dev server restart.
+
+Stage Summary:
+- Phase 8 (Payments) is COMPLETE and verified end-to-end with agent-browser.
+- All 3 payment pages render with real data:
+  * /payments — 6 payments (5 completed, 1 failed), stat tiles, record payment dialog
+  * /payments/gateways — 3 gateways (manual=DEFAULT, razorpay=TEST enabled, stripe=TEST disabled), adapter catalog with 4 adapters
+  * /payments/reconciliation — 5 unreconciled payments with checkbox selection + bulk reconcile action
+- Lint: 0 errors. Dev server healthy.
+- Architecture: GatewayAdapter interface with 4 implementations (Manual, Stripe, Razorpay, PayPal), new gateways can be added without changing payment service. Payments link to invoices (updates invoice status on payment). Reconciliation tracks matched/unmatched payments.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 5/10-13 (Policy, Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrates with RADIUS attributes
+2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
+3. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
+4. Phase 12: Communication (Email, SMS, WhatsApp, templates)
