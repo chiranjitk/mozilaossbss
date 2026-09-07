@@ -114,3 +114,88 @@ Priority recommendations for next phase:
 3. Phase 1.3: Roles & Permissions page (/admin/roles) — role CRUD, permission matrix
 4. Phase 1.4: Audit Log page (/admin/audit) — filterable audit trail
 5. Phase 1.5: System Settings page (/admin/settings) — key/value config store
+
+---
+Task ID: 1-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 1 — Core Platform admin pages (Module Manager, Users, Roles, Audit Log, System Settings).
+
+Work Log:
+- QA assessment: dev server healthy, login + dashboard working with real data, modules API (GET + PATCH) verified working. Admin pages returned unstyled 404.
+- Built reusable AuthenticatedLayout server wrapper (auth + nav + AppShell in one component) — eliminates boilerplate across all future authenticated pages.
+- Built reusable DataTable component (TanStack Table wrapper) with server-side pagination, sorting, column visibility, search, loading/empty/error states, CSV-ready. Used by Users and Audit pages.
+- Built useDebounce hook for search inputs.
+- Phase 1.1 — Module Manager (/admin/modules):
+  * Real-time module grid with 13 modules, each showing: name, description, category badge, license tier, version, enable/disable Switch, health StatusBadge, worker status, resource chips (frontend-only/full-stack/with-worker/external-connection/scheduled-jobs), dependency badges with check/x indicators, permission count.
+  * Category-specific icons per module (core=Boxes, aaa=KeyRound, customer=Users, network=Network, etc.).
+  * Stat tiles: Enabled / Disabled / Healthy / Active Workers.
+  * Filters: search (debounced), category dropdown, status dropdown.
+  * Confirm dialog on toggle: shows dependencies (when enabling) or dependents warning (when disabling). Auto-enables dependencies on enable.
+  * Toggle calls PATCH /api/v1/modules → DB update → audit log → event emission → navigation rebuild on next load.
+  * Verified E2E: enabled Network module → sidebar immediately showed IPAM/DHCP/DNS/Interfaces nav after reload → disabled it back.
+- Phase 1.2 — Users (/admin/users):
+  * Full CRUD via /api/v1/users (GET list, POST create, GET/PATCH/DELETE by id).
+  * User repository layer (listUsers, getUserById, createUser, updateUser, deleteUser, resetUserPassword, unlockUser) — business logic isolated from API handlers.
+  * DataTable with columns: User (avatar+name+email), Username (mono), Roles (badges), Status (StatusBadge), Last Login (relative time + IP), Actions menu (Edit/Unlock/Reset password/Delete).
+  * Create/Edit dialog with UserForm (React Hook Form + Zod): username, name, email, phone, password, status, role multi-select (checkbox list with descriptions).
+  * Self-protection: cannot disable or delete own account.
+  * Duplicate detection: email and username uniqueness enforced server-side.
+  * Reset password dialog (min 8 chars).
+  * Delete confirmation alert dialog.
+- Phase 1.3 — Roles & Permissions (/admin/roles):
+  * GET /api/v1/roles returns roles + permissions + permissionsByModule (grouped for matrix).
+  * POST/PATCH/DELETE /api/v1/roles and /api/v1/roles/[id].
+  * Role grid: name, SYSTEM badge (protected), description, user count, permission count, permission chips (first 8 + "+N more").
+  * Stat tiles: Total Roles / System Roles / User Assignments / Permissions.
+  * Create/Edit dialog with permission matrix: accordion grouped by module, each with select-all checkbox (indeterminate state), individual permission checkboxes with key + description.
+  * System roles are read-only (name + permissions locked, only description editable).
+  * Delete blocked for system roles and roles with assigned users.
+- Phase 1.4 — Audit Log (/admin/audit):
+  * GET /api/v1/audit with filters: search, module, action, status, userId, resource, date range. Server-side pagination.
+  * DataTable columns: Timestamp (absolute + relative), User (name + email), Action (mono brand red), Module (badge), Resource (+ truncated ID), Status (StatusBadge), Message (+ IP).
+  * Filters: module dropdown, status dropdown, debounced search.
+  * Export CSV button (client-side blob download).
+  * Shows real audit entries from module toggle actions (module.enable, module.disable).
+- Phase 1.5 — System Settings (/admin/settings):
+  * GET /api/v1/settings (grouped by category), PUT /api/v1/settings (upsert with audit + event).
+  * Settings grouped by category cards (general, billing, network, notification, ai, security, integration).
+  * Each setting: key (mono), value (mono, masked if encrypted), updated relative time, reveal toggle (eye icon) for encrypted values, edit button.
+  * Stat tiles: Total Settings / Categories / Encrypted.
+  * Add/Edit dialog: key, value, category dropdown, encrypt checkbox (password input when encrypted).
+  * Verified E2E: created "platform.name" = "Cryptsk Demo" setting → persisted → appeared in list.
+- Fixed bugs during QA:
+  * Duplicate `Icon` import in module-manager-client (lucide Icon type vs component) — removed duplicate.
+  * `pendingToggle.module.name` null reference (Dialog renders children when closed) — added optional chaining throughout.
+  * `module` variable name in audit API (Next.js rule) — renamed to `moduleFilter`.
+  * setState in useEffect in user-form — derived initial state from prop + added `key` prop for remount.
+  * TanStack Table React Compiler warning — added eslint-disable comment with explanation.
+
+Stage Summary:
+- Phase 1 (Core Platform) is COMPLETE and verified end-to-end with agent-browser.
+- All 5 admin pages render with real data from the database:
+  * /admin/modules — 13 modules, 7 enabled, toggle works E2E
+  * /admin/users — admin user from DB, CRUD dialogs functional
+  * /admin/roles — 7 system roles, 94 permissions, matrix editor works
+  * /admin/audit — real audit entries from module toggles, CSV export works
+  * /admin/settings — created and persisted a real setting
+- Lint: 0 errors. Dev server healthy. All APIs return real JSON with request IDs.
+- Screenshots saved to /home/z/my-project/screenshots/ (phase1-module-manager, phase1-users, phase1-roles, phase1-audit, phase1-settings).
+- Architecture compliance: UI → API → Service/Repository → DB → Audit → Event → UI vertical slices proven on every page.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform: Module Manager, Users, Roles, Audit, Settings): COMPLETE ✓
+- Phase 2 (Customer Management: Subscribers, Plans, Customer 360): NOT STARTED — next priority
+- Phase 3 (AAA/RADIUS — strategic differentiator): NOT STARTED
+
+Unresolved issues or risks:
+- Dev server crashed once during rapid page compilation (OOM in 4GB sandbox) — restarted cleanly. Mitigation: compile pages sequentially, not in parallel.
+- No automated tests yet (architecture requires them; will add as features stabilize).
+- RADIUS worker not yet implemented (Phase 3).
+
+Priority recommendations for next phase:
+1. Phase 2.1: Subscribers list page (/subscribers) — DataTable with search/filter, status badges, plan assignment
+2. Phase 2.2: Subscriber detail / Customer 360 page (/subscribers/[id]) — full lifecycle view with sessions, invoices, payments, complaints
+3. Phase 2.3: Plans page (/plans) — CRUD with bandwidth/data cap/session limit config
+4. Phase 2.4: Batch provisioning (/subscribers/batch) — CSV import for bulk subscriber creation
+5. Phase 2.5: Subscriber lifecycle actions (suspend/reactivate/terminate) with audit + events + RADIUS CoA hooks (prep for Phase 3)
