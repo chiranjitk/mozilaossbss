@@ -528,3 +528,64 @@ Priority recommendations for next phase:
 2. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrates with RADIUS attributes
 3. Phase 6: Monitoring (real-time bandwidth, traffic analytics, alerts, syslog)
 4. Phase 9: Operations (complaints, technicians, installations, inventory, incidents)
+
+---
+Task ID: 9-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 9 — Operations (Complaints, Technicians, Installations, Inventory, Incidents).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 7 billing pages working. Confirmed /operations/complaints returned 404 (Phase 9 not started).
+- Phase 9.1 — Prisma schema additions (3 new models):
+  * Installation: workOrderNo, subscriberId, technicianId, type (new_install/upgrade/repair/disconnect/relocation), status (scheduled/in_progress/completed/cancelled/failed), address, scheduledDate, completedAt, notes, equipmentUsed, coordinates.
+  * InventoryItem: name, sku, category (networking/cpe/cable/accessory/tool), unit, quantity, minQuantity, reorderPoint, unitCost (Decimal), unitPrice, location, status (in_stock/low_stock/out_of_stock/reserved). Auto-calculates status on quantity change.
+  * Incident: incidentNo, title, severity (minor/major/critical/catastrophic), status (open/acknowledged/resolved/closed), category (network/system/security/power/other), affectedAreas, startedAt, acknowledgedAt, resolvedAt, closedAt, resolution, rootCause. Auto-sets timestamps on status transitions.
+  * Added relations to Tenant, Subscriber, Technician, User models.
+- Phase 9.1 — Complaints API + page:
+  * API: GET /api/v1/complaints (paginated, search, filter by status/priority/category), POST (create with auto TKT-YYYY-XXXX), GET/PATCH/DELETE [id] (PATCH supports resolve with resolution notes appended to description, status transitions, assignment).
+  * Page (/operations/complaints): DataTable with ticket#, subject, category, subscriber, priority badge, assignee, status badge, created time. Stat tiles: Total, Open, High Priority, Resolved. Status + priority filters. Create dialog (subject, description, category, priority). Resolve dialog with resolution notes. Close action.
+- Phase 9.2 — Technicians API + page:
+  * API: GET (paginated, search, filter by status), POST (create), GET/PATCH/DELETE [id] (delete blocked if active assignments exist).
+  * Page (/operations/technicians): DataTable with name+icon (color-coded by status), contact (phone/email), active assignments count, status badge, joined time. Create/Edit dialog (name, phone, email, employeeId, status). Delete confirmation.
+- Phase 9.3 — Installations API + page:
+  * API: GET (paginated, search, filter by status/type/technicianId), POST (create with auto WO-YYYY-XXXX), GET/PATCH [id] (PATCH sets completedAt on status=completed, assigns technician, updates notes).
+  * Page (/operations/installations): DataTable with work order #, type badge (color-coded), subscriber, address, technician, scheduled date, status badge. Create dialog (type, subscriber, technician, address, scheduled date, notes). Complete dialog with completion notes. Stat tiles: Total, Active, Completed, Upcoming.
+- Phase 9.4 — Inventory API + page:
+  * API: GET (paginated, search, filter by category/status), POST (create with auto status calculation), GET/PATCH/DELETE [id] (PATCH auto-recalculates status on quantity change). Computes needsReorder + stockValue per item.
+  * Page (/operations/inventory): DataTable with item name+SKU, category badge (color-coded), quantity with reorder warning, unit cost, stock value, location, status badge. Create/Edit dialog (name, SKU, category, unit, quantity, min/reorder points, unit cost, unit price, location). Delete confirmation. Stat tiles: Items, In Stock, Need Reorder, Total Value.
+- Phase 9.5 — Incidents API + page:
+  * API: GET (paginated, search, filter by status/severity/category), POST (create with auto INC-YYYY-XXXX), GET/PATCH/DELETE [id] (PATCH auto-sets acknowledgedAt/resolvedAt/closedAt on status transitions, supports resolution+rootCause fields). Computes duration (time since startedAt or until resolvedAt).
+  * Page (/operations/incidents): DataTable with incident#, title, category, severity badge (color-coded), status badge, duration, started time, assignee. Acknowledge/Resolve/Close actions based on status. Create dialog (title, description, severity, category, affected areas). Resolve dialog with resolution + root cause fields. Stat tiles: Total, Active, Critical, Resolved.
+- Phase 9.6 — Seed data:
+  * Enabled operations module for demo tenant.
+  * 3 technicians (Vikram Singh, Sneha Reddy, Arjun Nair).
+  * 1 installation (WO-2026-0001, scheduled, assigned to Vikram, subscriber CUST-0002).
+  * 4 inventory items (ONT Router, Cat6 Cable [low stock], Fiber Patch Cord [out of stock], MikroTik hAP).
+  * 2 incidents (Building A outage [major, acknowledged], DNS slow [minor, open]).
+
+Stage Summary:
+- Phase 9 (Operations) is COMPLETE and verified end-to-end with agent-browser.
+- All 5 operations pages render with real data:
+  * /operations/complaints — 1 complaint, resolve/close actions work
+  * /operations/technicians — 3 technicians with active assignment counts
+  * /operations/installations — 1 work order with type badge and technician
+  * /operations/inventory — 4 items with stock levels, reorder warnings, total value
+  * /operations/incidents — 2 incidents with severity colors and lifecycle actions
+- Lint: 0 errors. Dev server healthy.
+- Architecture: all APIs use apiRoute wrapper + requireModulePermission + recordAudit, all pages use AuthenticatedLayout + DataTable, events emitted on create/resolve (COMPLAINT_CREATED, COMPLAINT_RESOLVED, INSTALLATION_COMPLETED, ALERT_TRIGGERED, ALERT_ACKNOWLEDGED).
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 5/6/8/10-13 (Policy, Monitoring, Payments, Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 6: Monitoring (real-time bandwidth, traffic analytics, alerts, syslog) — leverages AAA session data
+2. Phase 8: Payments (gateway abstraction, adapters, reconciliation) — builds on billing
+3. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall)
+4. Phase 10: Device Management (TR-069, MikroTik, SNMP)

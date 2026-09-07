@@ -1,0 +1,752 @@
+     1→// =====================================================================
+     2→// CRYPTSK PRISMA SCHEMA — Phase 0 Foundation
+     3→// =====================================================================
+     4→// Universal Core + Industry Modules architecture.
+     5→// SQLite for dev sandbox. PostgreSQL-ready (no SQLite-coupled business logic).
+     6→// All entities are tenant-aware where multi-tenancy is meaningful.
+     7→// Decimal-safe money via Prisma Decimal (never floating point).
+     8→// =====================================================================
+     9→
+    10→generator client {
+    11→  provider = "prisma-client-js"
+    12→}
+    13→
+    14→datasource db {
+    15→  provider = "sqlite"
+    16→  url      = env("DATABASE_URL")
+    17→}
+    18→
+    19→// =====================================================================
+    20→// CORE — TENANCY
+    21→// =====================================================================
+    22→
+    23→model Tenant {
+    24→  id          String   @id @default(cuid())
+    25→  name        String
+    26→  slug        String   @unique
+    27→  domain      String?
+    28→  edition     String   @default("enterprise") // isp | enterprise | msp | hospitality | campus | telecom | datacenter | government
+    29→  timezone    String   @default("UTC")
+    30→  locale      String   @default("en")
+    31→  currency    String   @default("USD")
+    32→  status      String   @default("active") // active | suspended | locked
+    33→  metadata    String?
+    34→  createdAt   DateTime @default(now())
+    35→  updatedAt   DateTime @updatedAt
+    36→
+    37→  users       User[]
+    38→  modules     ModuleState[]
+    39→  auditLogs   AuditLog[]
+    40→  settings    SystemSetting[]
+    41→  notifications Notification[]
+    42→  subscribers Subscriber[]
+    43→  plans       Plan[]
+    44→  nasClients  NasClient[]
+    45→  activeSessions ActiveSession[]
+    46→  sessionHistories SessionHistory[]
+    47→  invoices    Invoice[]
+    48→  payments    Payment[]
+    49→  complaints  Complaint[]
+    50→  technicians Technician[]
+    51→  subnets     Subnet[]
+    52→  ipAddresses IpAddress[]
+    53→  dhcpLeases  DhcpLease[]
+    54→  dnsZones    DnsZone[]
+    55→  dnsRecords  DnsRecord[]
+    56→  systemInterfaces SystemInterface[]
+    57→  vouchers    Voucher[]
+    58→  installations Installation[]
+    59→  inventoryItems InventoryItem[]
+    60→  incidents   Incident[]
+    61→}
+    62→
+    63→// =====================================================================
+    64→// CORE — IDENTITY & RBAC
+    65→// =====================================================================
+    66→
+    67→model User {
+    68→  id              String   @id @default(cuid())
+    69→  tenantId        String
+    70→  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+    71→  email           String   @unique
+    72→  username        String   @unique
+    73→  passwordHash    String
+    74→  name            String?
+    75→  avatarUrl       String?
+    76→  phone           String?
+    77→  status          String   @default("active") // active | disabled | locked | invited
+    78→  lastLoginAt     DateTime?
+    79→  lastLoginIp     String?
+    80→  failedAttempts  Int      @default(0)
+    81→  lockedUntil     DateTime?
+    82→  createdAt       DateTime @default(now())
+    83→  updatedAt       DateTime @updatedAt
+    84→
+    85→  userRoles       UserRole[]
+    86→  auditLogs       AuditLog[]
+    87→  sessions       ActiveSession[]   @relation("SessionOperator")
+    88→  complaintsAssigned Complaint[]
+    89→  incidentsAssigned Incident[]
+    90→  technician      Technician?
+    91→
+    92→  @@index([tenantId])
+    93→  @@index([status])
+    94→}
+    95→
+    96→model Role {
+    97→  id            String         @id @default(cuid())
+    98→  tenantId      String?
+    99→  name          String         @unique
+   100→  description   String?
+   101→  isSystem      Boolean        @default(false) // system roles cannot be deleted
+   102→  createdAt     DateTime       @default(now())
+   103→  updatedAt     DateTime       @updatedAt
+   104→
+   105→  permissions   RolePermission[]
+   106→  users         UserRole[]
+   107→}
+   108→
+   109→model Permission {
+   110→  id          String   @id @default(cuid())
+   111→  key         String   @unique // e.g. billing.invoice.read, subscriber.create
+   112→  module      String   // billing, subscriber, aaa, network, etc.
+   113→  action      String   // read, create, update, delete, suspend, etc.
+   114→  description String?
+   115→  createdAt    DateTime @default(now())
+   116→
+   117→  roles       RolePermission[]
+   118→}
+   119→
+   120→model RolePermission {
+   121→  roleId      String
+   122→  permissionId String
+   123→  role        Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+   124→  permission  Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+   125→
+   126→  @@id([roleId, permissionId])
+   127→}
+   128→
+   129→model UserRole {
+   130→  userId   String
+   131→  roleId   String
+   132→  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+   133→  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+   134→
+   135→  @@id([userId, roleId])
+   136→}
+   137→
+   138→// =====================================================================
+   139→// CORE — MODULE REGISTRY (persisted enable/disable state)
+   140→// =====================================================================
+   141→
+   142→model ModuleState {
+   143→  id          String   @id @default(cuid())
+   144→  tenantId    String
+   145→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   146→  moduleId    String   // matches id in src/core/modules/registry.ts
+   147→  enabled     Boolean  @default(false)
+   148→  licensed    Boolean  @default(false)
+   149→  licenseExpiry DateTime?
+   150→  config      String?  // JSON-encoded module-specific config
+   151→  health      String   @default("unknown") // healthy | degraded | down | unknown
+   152→  workerStatus String  @default("stopped") // running | stopped | error
+   153→  lastStartedAt DateTime?
+   154→  updatedAt   DateTime @updatedAt
+   155→
+   156→  @@unique([tenantId, moduleId])
+   157→  @@index([tenantId, enabled])
+   158→}
+   159→
+   160→// =====================================================================
+   161→// CORE — AUDIT LOG
+   162→// =====================================================================
+   163→
+   164→model AuditLog {
+   165→  id          String   @id @default(cuid())
+   166→  tenantId    String?
+   167→  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+   168→  userId      String?
+   169→  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+   170→  action      String   // e.g. subscriber.suspend
+   171→  module      String
+   172→  resource    String
+   173→  resourceId  String?
+   174→  requestId   String?
+   175→  ipAddress   String?
+   176→  userAgent   String?
+   177→  oldValue     String? // JSON
+   178→  newValue     String? // JSON
+   179→  status       String  @default("success") // success | failure | error
+   180→  message      String?
+   181→  createdAt    DateTime @default(now())
+   182→
+   183→  @@index([tenantId, createdAt])
+   184→  @@index([userId])
+   185→  @@index([module, action])
+   186→  @@index([resource, resourceId])
+   187→}
+   188→
+   189→// =====================================================================
+   190→// CORE — SYSTEM SETTINGS (key/value store, tenant-scoped)
+   191→// =====================================================================
+   192→
+   193→model SystemSetting {
+   194→  id        String   @id @default(cuid())
+   195→  tenantId  String?
+   196→  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   197→  key       String
+   198→  value     String
+   199→  category  String   @default("general") // general | billing | network | notification | ai | ...
+   200→  encrypted Boolean  @default(false)
+   201→  updatedAt DateTime @updatedAt
+   202→  updatedBy String?
+   203→
+   204→  @@unique([tenantId, key])
+   205→  @@index([category])
+   206→}
+   207→
+   208→// =====================================================================
+   209→// CORE — NOTIFICATIONS
+   210→// =====================================================================
+   211→
+   212→model Notification {
+   213→  id        String   @id @default(cuid())
+   214→  tenantId  String
+   215→  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   216→  userId    String?  // null = broadcast to tenant
+   217→  title     String
+   218→  message   String
+   219→  level     String   @default("info") // info | success | warning | error
+   220→  category  String?  // system | billing | aaa | network | ...
+   221→  link      String?
+   222→  readAt    DateTime?
+   223→  createdAt DateTime @default(now())
+   224→
+   225→  @@index([tenantId, userId, readAt])
+   226→  @@index([createdAt])
+   227→}
+   228→
+   229→// =====================================================================
+   230→// CUSTOMER (Phase 2) — minimal stub now for dashboard KPIs
+   231→// =====================================================================
+   232→
+   233→model Subscriber {
+   234→  id           String   @id @default(cuid())
+   235→  tenantId     String
+   236→  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   237→  customerId   String   @unique // human-friendly ID
+   238→  firstName    String
+   239→  lastName     String
+   240→  email        String?
+   241→  phone        String?
+   242→  address      String?
+   243→  status       String   @default("active") // active | suspended | terminated | pending
+   244→  planId       String?
+   245→  plan         Plan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
+   246→  username     String?  @unique // RADIUS username
+   247→  passwordHash String?  // RADIUS password (hashed)
+   248→  metadata     String?
+   249→  createdAt    DateTime @default(now())
+   250→  updatedAt    DateTime @updatedAt
+   251→
+   252→  activeSessions ActiveSession[]
+   253→  sessionHistories SessionHistory[]
+   254→  invoices    Invoice[]
+   255→  payments    Payment[]
+   256→  complaints  Complaint[]
+   257→  vouchers    Voucher[]
+   258→  installations Installation[]
+   259→
+   260→  @@index([tenantId, status])
+   261→  @@index([tenantId, createdAt])
+   262→}
+   263→
+   264→model Plan {
+   265→  id            String   @id @default(cuid())
+   266→  tenantId      String
+   267→  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   268→  name          String
+   269→  code          String   @unique
+   270→  description   String?
+   271→  price         Decimal  
+   272→  currency      String   @default("USD")
+   273→  billingCycle  String   @default("monthly") // monthly | quarterly | yearly | one_time
+   274→  downloadSpeed Int?     // kbps
+   275→  uploadSpeed   Int?     // kbps
+   276→  dataCap       Int?     // MB, null = unlimited
+   277→  sessionLimit  Int      @default(1)
+   278→  taxRate       Decimal  @default(0) 
+   279→  status        String   @default("active")
+   280→  createdAt     DateTime @default(now())
+   281→  updatedAt     DateTime @updatedAt
+   282→
+   283→  subscribers   Subscriber[]
+   284→  vouchers    Voucher[]
+   285→
+   286→  @@index([tenantId, status])
+   287→}
+   288→
+   289→// =====================================================================
+   290→// AAA (Phase 3) — stubs for dashboard
+   291→// =====================================================================
+   292→
+   293→model NasClient {
+   294→  id           String   @id @default(cuid())
+   295→  tenantId     String
+   296→  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   297→  name         String
+   298→  ipAddress    String   @unique
+   299→  sharedSecret String
+   300→  type         String   @default("generic") // mikrotik | cisco | generic | ...
+   301→  coaPort      Int      @default(3799)
+   302→  status       String   @default("active")
+   303→  lastSeenAt   DateTime?
+   304→  createdAt    DateTime @default(now())
+   305→  updatedAt    DateTime @updatedAt
+   306→
+   307→  activeSessions ActiveSession[]
+   308→  sessionHistories SessionHistory[]
+   309→
+   310→  @@index([tenantId, status])
+   311→}
+   312→
+   313→model ActiveSession {
+   314→  id               String   @id @default(cuid())
+   315→  tenantId         String
+   316→  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   317→  sessionId        String   @unique // RADIUS Acct-Session-Id
+   318→  subscriberId     String?
+   319→  subscriber       Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+   320→  nasId            String
+   321→  nas              NasClient @relation(fields: [nasId], references: [id], onDelete: Cascade)
+   322→  operatorId       String?
+   323→  operator         User?    @relation("SessionOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+   324→  username         String
+   325→  nasIpAddress     String
+   326→  framedIpAddress   String?
+   327→  nasPortId        String?
+   328→  callingStationId  String? // MAC
+   329→  calledStationId   String?
+   330→  protocol         String? // PPP | PPPoE | Ethernet | Wireless
+   331→  startTime        DateTime @default(now())
+   332→  updateTime       DateTime @updatedAt
+   333→  inputOctets      BigInt   @default(0)
+   334→  outputOctets     BigInt   @default(0)
+   335→  inputGigawords   Int      @default(0)
+   336→  outputGigawords  Int      @default(0)
+   337→  sessionTimeout   Int?     // seconds
+   338→  status           String   @default("active") // active | stopped | expired
+   339→  terminationCause String?
+   340→  createdAt        DateTime @default(now())
+   341→
+   342→  @@index([tenantId, status])
+   343→  @@index([subscriberId])
+   344→  @@index([nasId])
+   345→  @@index([framedIpAddress])
+   346→  @@index([username])
+   347→  @@index([startTime])
+   348→}
+   349→
+   350→model SessionHistory {
+   351→  id               String   @id @default(cuid())
+   352→  tenantId         String
+   353→  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   354→  sessionId        String
+   355→  subscriberId     String?
+   356→  subscriber       Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+   357→  nasId            String
+   358→  nas              NasClient @relation(fields: [nasId], references: [id], onDelete: Cascade)
+   359→  username         String
+   360→  nasIpAddress     String
+   361→  framedIpAddress   String?
+   362→  callingStationId  String?
+   363→  startTime        DateTime
+   364→  stopTime         DateTime?
+   365→  duration         Int?     // seconds
+   366→  inputOctets      BigInt   @default(0)
+   367→  outputOctets     BigInt   @default(0)
+   368→  terminationCause String?
+   369→  createdAt        DateTime @default(now())
+   370→
+   371→  @@index([tenantId, startTime])
+   372→  @@index([subscriberId])
+   373→  @@index([nasId])
+   374→  @@index([username])
+   375→}
+   376→
+   377→// =====================================================================
+   378→// BILLING / PAYMENTS (Phase 7-8) — stubs for dashboard
+   379→// =====================================================================
+   380→
+   381→model Invoice {
+   382→  id          String   @id @default(cuid())
+   383→  tenantId    String
+   384→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   385→  number      String   @unique
+   386→  subscriberId String?
+   387→  subscriber  Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+   388→  issueDate   DateTime @default(now())
+   389→  dueDate     DateTime
+   390→  subtotal    Decimal  
+   391→  taxAmount   Decimal  @default(0) 
+   392→  total       Decimal  
+   393→  amountPaid  Decimal  @default(0) 
+   394→  status      String   @default("draft") // draft | issued | paid | partial | overdue | cancelled
+   395→  currency    String   @default("USD")
+   396→  items       String?  // JSON array of line items
+   397→  createdAt   DateTime @default(now())
+   398→  updatedAt   DateTime @updatedAt
+   399→
+   400→  payments    Payment[]
+   401→
+   402→  @@index([tenantId, status])
+   403→  @@index([subscriberId])
+   404→  @@index([dueDate])
+   405→}
+   406→
+   407→model Payment {
+   408→  id           String   @id @default(cuid())
+   409→  tenantId     String
+   410→  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   411→  number       String   @unique
+   412→  invoiceId    String?
+   413→  invoice      Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+   414→  subscriberId String?
+   415→  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+   416→  amount       Decimal  
+   417→  currency     String   @default("USD")
+   418→  method       String   @default("manual") // cash | card | bank | upi | wallet | gateway | manual
+   419→  gateway      String?  // stripe | razorpay | paypal | ...
+   420→  gatewayRef   String?
+   421→  status       String   @default("completed") // pending | completed | failed | refunded
+   422→  receivedAt   DateTime @default(now())
+   423→  createdAt    DateTime @default(now())
+   424→
+   425→  @@index([tenantId, status])
+   426→  @@index([invoiceId])
+   427→  @@index([subscriberId])
+   428→}
+   429→
+   430→model Voucher {
+   431→  id          String    @id @default(cuid())
+   432→  tenantId    String
+   433→  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   434→  code        String    @unique
+   435→  batchId     String?
+   436→  type        String    @default("plan_subscription") // plan_subscription | topup | discount | credit
+   437→  planId      String?
+   438→  plan        Plan?     @relation(fields: [planId], references: [id], onDelete: SetNull)
+   439→  value       Decimal
+   440→  currency    String    @default("USD")
+   441→  durationDays Int?
+   442→  status      String    @default("unused") // unused | used | expired | disabled
+   443→  subscriberId String?
+   444→  subscriber  Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+   445→  redeemedAt  DateTime?
+   446→  expiresAt   DateTime?
+   447→  notes       String?
+   448→  createdAt   DateTime  @default(now())
+   449→  updatedAt   DateTime  @updatedAt
+   450→
+   451→  @@index([tenantId, status])
+   452→  @@index([batchId])
+   453→  @@index([subscriberId])
+   454→}
+   455→
+   456→// =====================================================================
+   457→// OPERATIONS (Phase 9) — stubs for dashboard
+   458→// =====================================================================
+   459→
+   460→model Complaint {
+   461→  id          String   @id @default(cuid())
+   462→  tenantId    String
+   463→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   464→  ticketNo    String   @unique
+   465→  subscriberId String?
+   466→  subscriber  Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+   467→  assignedTo  String?
+   468→  assignee    User?    @relation(fields: [assignedTo], references: [id], onDelete: SetNull)
+   469→  subject     String
+   470→  description  String?
+   471→  category     String?  // billing | network | technical | other
+   472→  priority     String   @default("normal") // low | normal | high | urgent
+   473→  status       String   @default("open") // open | in_progress | resolved | closed
+   474→  createdAt    DateTime @default(now())
+   475→  updatedAt    DateTime @updatedAt
+   476→
+   477→  @@index([tenantId, status])
+   478→  @@index([assignedTo])
+   479→}
+   480→
+   481→model Technician {
+   482→  id          String   @id @default(cuid())
+   483→  tenantId    String
+   484→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   485→  userId      String?  @unique
+   486→  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+   487→  name        String
+   488→  phone       String?
+   489→  email       String?
+   490→  employeeId  String?
+   491→  status      String   @default("active") // active | busy | off_duty
+   492→  createdAt   DateTime @default(now())
+   493→  updatedAt   DateTime @updatedAt
+   494→
+   495→  installations Installation[]
+   496→
+   497→  @@index([tenantId, status])
+   498→}
+   499→
+   500→model Installation {
+   501→  id            String   @id @default(cuid())
+   502→  tenantId      String
+   503→  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   504→  workOrderNo   String   @unique
+   505→  subscriberId  String?
+   506→  subscriber    Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+   507→  technicianId  String?
+   508→  technician    Technician? @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+   509→  type          String   @default("new_install") // new_install | upgrade | repair | disconnect | relocation
+   510→  status        String   @default("scheduled") // scheduled | in_progress | completed | cancelled | failed
+   511→  address       String?
+   512→  scheduledDate DateTime?
+   513→  completedAt   DateTime?
+   514→  notes         String?
+   515→  // Equipment used
+   516→  equipmentUsed String?  // JSON array of { item, quantity }
+   517→  // Coordinates
+   518→  latitude      Float?
+   519→  longitude     Float?
+   520→  createdAt     DateTime @default(now())
+   521→  updatedAt     DateTime @updatedAt
+   522→
+   523→  @@index([tenantId, status])
+   524→  @@index([technicianId])
+   525→  @@index([subscriberId])
+   526→}
+   527→
+   528→model InventoryItem {
+   529→  id          String   @id @default(cuid())
+   530→  tenantId    String
+   531→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   532→  name        String
+   533→  sku         String?
+   534→  category    String   @default("networking") // networking | cpe | cable | accessory | tool
+   535→  description String?
+   536→  unit        String   @default("unit") // unit | meter | box | roll
+   537→  quantity    Int      @default(0)
+   538→  minQuantity Int      @default(0)
+   539→  reorderPoint Int     @default(5)
+   540→  unitCost    Decimal
+   541→  unitPrice   Decimal?
+   542→  location    String?  // warehouse / shelf location
+   543→  status      String   @default("in_stock") // in_stock | low_stock | out_of_stock | reserved
+   544→  createdAt   DateTime @default(now())
+   545→  updatedAt   DateTime @updatedAt
+   546→
+   547→  @@index([tenantId, status])
+   548→  @@index([tenantId, category])
+   549→}
+   550→
+   551→model Incident {
+   552→  id          String   @id @default(cuid())
+   553→  tenantId    String
+   554→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   555→  incidentNo   String   @unique
+   556→  title       String
+   557→  description String?
+   558→  severity    String   @default("minor") // minor | major | critical | catastrophic
+   559→  status      String   @default("open") // open | acknowledged | resolved | closed
+   560→  category    String   @default("network") // network | system | security | power | other
+   561→  affectedAreas String? // comma-separated areas/subnets/services affected
+   562→  reportedBy  String?
+   563→  assignedTo  String?
+   564→  assignee    User?    @relation(fields: [assignedTo], references: [id], onDelete: SetNull)
+   565→  startedAt    DateTime @default(now())
+   566→  acknowledgedAt DateTime?
+   567→  resolvedAt  DateTime?
+   568→  closedAt    DateTime?
+   569→  resolution  String?
+   570→  rootCause   String?
+   571→  createdAt   DateTime @default(now())
+   572→  updatedAt   DateTime @updatedAt
+   573→
+   574→  @@index([tenantId, status])
+   575→  @@index([tenantId, severity])
+   576→}
+   577→
+   578→// =====================================================================
+   579→// EVENTS — internal event log (for async processing & replay)
+   580→// =====================================================================
+   581→
+   582→model EventLog {
+   583→  id          String   @id @default(cuid())
+   584→  tenantId    String?
+   585→  type        String   // e.g. subscriber.created, payment.received, session.started
+   586→  payload     String   // JSON
+   587→  source      String?  // module that emitted
+   588→  requestId   String?
+   589→  processed   Boolean  @default(false)
+   590→  processedAt DateTime?
+   591→  error       String?
+   592→  createdAt   DateTime @default(now())
+   593→
+   594→  @@index([type, processed, createdAt])
+   595→  @@index([tenantId, createdAt])
+   596→}
+   597→
+   598→// =====================================================================
+   599→// NETWORK MANAGEMENT (Phase 4) — IPAM, Subnets, DHCP, DNS, Interfaces
+   600→// =====================================================================
+   601→
+   602→model Subnet {
+   603→  id          String   @id @default(cuid())
+   604→  tenantId    String
+   605→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   606→  name        String
+   607→  network     String   // e.g. 192.168.1.0
+   608→  cidr        Int      // e.g. 24 (for /24)
+   609→  cidrNotation String // computed "192.168.1.0/24" for quick lookups
+   610→  gateway     String?
+   611→  dnsPrimary  String?
+   612→  dnsSecondary String?
+   613→  vlanId      Int?
+   614→  type        String   @default("data") // data | voice | management | guest | pppoe
+   615→  status      String   @default("active") // active | reserved | exhausted | archived
+   616→  description String?
+   617→  totalAddresses Int   @default(0) // 2^(32-cidr)
+   618→  usableAddresses Int @default(0) // total - 2 (network + broadcast)
+   619→  allocatedCount Int   @default(0)
+   620→  createdAt   DateTime @default(now())
+   621→  updatedAt   DateTime @updatedAt
+   622→
+   623→  ipAddresses IpAddress[]
+   624→  dhcpLeases  DhcpLease[]
+   625→
+   626→  @@unique([tenantId, cidrNotation])
+   627→  @@index([tenantId, status])
+   628→  @@index([tenantId, type])
+   629→}
+   630→
+   631→model IpAddress {
+   632→  id          String   @id @default(cuid())
+   633→  tenantId    String
+   634→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   635→  subnetId    String
+   636→  subnet      Subnet   @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+   637→  ipAddress    String   @unique
+   638→  status      String   @default("available") // available | allocated | reserved | excluded
+   639→  assignedTo  String?  // subscriberId or hostname or device name
+   640→  assignedType String? // subscriber | nas | device | static | dhcp
+   641→  macAddress  String?
+   642→  hostname    String?
+   643→  notes       String?
+   644→  allocatedAt DateTime?
+   645→  allocatedBy String?  // userId or "system"
+   646→  createdAt   DateTime @default(now())
+   647→  updatedAt   DateTime @updatedAt
+   648→
+   649→  @@index([subnetId, status])
+   650→  @@index([tenantId, status])
+   651→  @@index([assignedTo])
+   652→}
+   653→
+   654→model DhcpLease {
+   655→  id          String   @id @default(cuid())
+   656→  tenantId    String
+   657→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   658→  subnetId    String?
+   659→  subnet      Subnet?  @relation(fields: [subnetId], references: [id], onDelete: SetNull)
+   660→  ipAddress    String   @unique
+   661→  macAddress  String
+   662→  hostname    String?
+   663→  clientId    String?  // DHCP Client Identifier
+   664→  leaseStart  DateTime @default(now())
+   665→  leaseEnd    DateTime
+   666→  leaseTime   Int      // seconds
+   667→  state       String   @default("active") // active | expired | released | declined
+   668→  nasId       String?
+   669→  createdAt   DateTime @default(now())
+   670→  updatedAt   DateTime @updatedAt
+   671→
+   672→  @@index([tenantId, state])
+   673→  @@index([subnetId])
+   674→  @@index([macAddress])
+   675→  @@index([leaseEnd])
+   676→}
+   677→
+   678→model DnsZone {
+   679→  id          String   @id @default(cuid())
+   680→  tenantId    String
+   681→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   682→  name        String   @unique // e.g. example.com
+   683→  type        String   @default("forward") // forward | reverse
+   684→  soaSerial   Int      @default(1)
+   685→  soaRefresh  Int      @default(3600)
+   686→  soaRetry    Int      @default(900)
+   687→  soaExpire   Int      @default(604800)
+   688→  soaMinimum  Int      @default(86400)
+   689→  primaryNs   String?  // primary nameserver
+   690→  adminEmail  String?  // responsible person
+   691→  status      String   @default("active") // active | disabled
+   692→  description String?
+   693→  createdAt   DateTime @default(now())
+   694→  updatedAt   DateTime @updatedAt
+   695→
+   696→  records     DnsRecord[]
+   697→
+   698→  @@index([tenantId, status])
+   699→}
+   700→
+   701→model DnsRecord {
+   702→  id          String   @id @default(cuid())
+   703→  tenantId    String
+   704→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   705→  zoneId      String
+   706→  zone        DnsZone  @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+   707→  name        String   // record name (e.g. "www" or "@" for apex)
+   708→  type        String   // A | AAAA | CNAME | MX | TXT | NS | SRV | PTR
+   709→  value       String   // record value
+   710→  ttl         Int      @default(3600)
+   711→  priority    Int?     // for MX records
+   712→  weight      Int?     // for SRV records
+   713→  port        Int?     // for SRV records
+   714→  status      String   @default("active")
+   715→  createdAt   DateTime @default(now())
+   716→  updatedAt   DateTime @updatedAt
+   717→
+   718→  @@index([zoneId, type])
+   719→  @@index([tenantId, name])
+   720→}
+   721→
+   722→model SystemInterface {
+   723→  id          String   @id @default(cuid())
+   724→  tenantId    String
+   725→  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   726→  name        String   // e.g. ether1, wan0, pppoe-out1
+   727→  displayName String?
+   728→  type        String   @default("ethernet") // ethernet | vlan | pppoe | bridge | loopback | wan
+   729→  ipAddress   String?  // primary IP (CIDR notation e.g. 192.168.1.1/24)
+   730→  macAddress  String?
+   731→  vlanId      Int?
+   732→  mtu         Int      @default(1500)
+   733→  enabled     Boolean  @default(true)
+   734→  rxBytes     BigInt   @default(0)
+   735→  txBytes     BigInt   @default(0)
+   736→  rxPackets   BigInt   @default(0)
+   737→  txPackets   BigInt   @default(0)
+   738→  rxErrors    Int      @default(0)
+   739→  txErrors    Int      @default(0)
+   740→  linkStatus  String   @default("up") // up | down | unknown
+   741→  speedMbps   Int?     // negotiated speed
+   742→  duplex      String?  // full | half | auto
+   743→  nasId       String?  // associated NAS device
+   744→  description String?
+   745→  lastUpdated DateTime?
+   746→  createdAt   DateTime @default(now())
+   747→  updatedAt   DateTime @updatedAt
+   748→
+   749→  @@index([tenantId, enabled])
+   750→  @@index([nasId])
+   751→}
+   752→

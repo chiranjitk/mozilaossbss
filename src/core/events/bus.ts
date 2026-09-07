@@ -166,7 +166,17 @@ export const EVENTS = {
   // Operations
   COMPLAINT_CREATED: "complaint.created",
   COMPLAINT_RESOLVED: "complaint.resolved",
+  INSTALLATION_CREATED: "installation.created",
   INSTALLATION_COMPLETED: "installation.completed",
+  INSTALLATION_CANCELLED: "installation.cancelled",
+  INCIDENT_CREATED: "incident.created",
+  INCIDENT_ACKNOWLEDGED: "incident.acknowledged",
+  INCIDENT_RESOLVED: "incident.resolved",
+  INCIDENT_CLOSED: "incident.closed",
+  TECHNICIAN_CREATED: "technician.created",
+  TECHNICIAN_UPDATED: "technician.updated",
+  INVENTORY_LOW_STOCK: "inventory.low_stock",
+  INVENTORY_OUT_OF_STOCK: "inventory.out_of_stock",
 
   // System
   MODULE_ENABLED: "module.enabled",
