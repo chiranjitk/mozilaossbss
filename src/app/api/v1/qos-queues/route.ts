@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiRoute, ok, created, paginated, ApiError } from "@/core/api/errors";
 import { requireModulePermission } from "@/core/rbac";
 import { recordAudit } from "@/core/repositories/audit";
+import { eventBus } from "@/core/events/bus";
 import { parsePagination } from "@/core/repositories/base";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +50,27 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
   if (existing) throw ApiError.duplicate("Queue", "name", data.name);
 
   const queue = await db.qosQueue.create({ data: { tenantId: ctx.tenantId, ...data } });
-  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "qos.create", module: "policy", resource: "QosQueue", resourceId: queue.id, requestId, message: `Created QoS queue ${queue.name}` });
-  return created({ id: queue.id, name: queue.name, status: queue.status }, requestId);
+
+  // === INDUSTRY STANDARD: Sync QoS queue to radgroupreply ===
+  const groupName = `qos-${queue.name.toLowerCase().replace(/\s+/g, "-")}`;
+  const qosAttrs: Array<{ groupname: string; attribute: string; op: string; value: string }> = [];
+
+  if (queue.rateLimit) {
+    qosAttrs.push({ groupname: groupName, attribute: "WISPr-Bandwidth-Max-Down", op: ":=", value: String(queue.rateLimit) });
+    qosAttrs.push({ groupname: groupName, attribute: "WISPr-Bandwidth-Max-Up", op: ":=", value: String(Math.round(queue.rateLimit * 0.2)) });
+  }
+  if (queue.ceilLimit) {
+    qosAttrs.push({ groupname: groupName, attribute: "Cryptsk-QoS-Ceil", op: ":=", value: String(queue.ceilLimit) });
+  }
+  // Priority mapping: P1=high priority, P8=best effort
+  const dscpValue = queue.priority <= 2 ? "46" : queue.priority <= 4 ? "34" : queue.priority <= 6 ? "18" : "0";
+  qosAttrs.push({ groupname: groupName, attribute: "Cryptsk-QoS-Priority", op: ":=", value: dscpValue });
+
+  if (qosAttrs.length > 0) {
+    await db.radGroupReply.createMany({ data: qosAttrs, skipDuplicates: true });
+  }
+
+  await eventBus.emit("policy.qos.created", { queueId: queue.id, groupName, priority: queue.priority }, { tenantId: ctx.tenantId, source: "policy", requestId });
+  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "qos.create", module: "policy", resource: "QosQueue", resourceId: queue.id, requestId, message: `Created QoS queue ${queue.name} → synced to RADIUS group ${groupName}` });
+  return created({ id: queue.id, name: queue.name, status: queue.status, radiusGroup: groupName }, requestId);
 });

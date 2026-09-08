@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiRoute, ok, created, paginated, ApiError } from "@/core/api/errors";
 import { requireModulePermission } from "@/core/rbac";
 import { recordAudit } from "@/core/repositories/audit";
+import { eventBus } from "@/core/events/bus";
 import { parsePagination } from "@/core/repositories/base";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,45 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
   if (existing) throw ApiError.duplicate("Profile", "name", data.name);
 
   const profile = await db.timeAccessProfile.create({ data: { tenantId: ctx.tenantId, ...data } });
-  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "timeaccess.create", module: "policy", resource: "TimeAccessProfile", resourceId: profile.id, requestId, message: `Created time access profile ${profile.name}` });
-  return created({ id: profile.id, name: profile.name, status: profile.status }, requestId);
+
+  // === INDUSTRY STANDARD: Sync time access to radgroupcheck Login-Time ===
+  const groupName = `timeaccess-${profile.name.toLowerCase().replace(/\s+/g, "-")}`;
+  const loginTimeString = convertScheduleToLoginTime(profile.schedule);
+
+  if (loginTimeString) {
+    await db.radGroupCheck.create({
+      data: { groupname: groupName, attribute: "Login-Time", op: ":=", value: loginTimeString },
+    }).catch(() => {});
+  }
+
+  await eventBus.emit("policy.timeaccess.created", { profileId: profile.id, groupName, loginTime: loginTimeString }, { tenantId: ctx.tenantId, source: "policy", requestId });
+  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "timeaccess.create", module: "policy", resource: "TimeAccessProfile", resourceId: profile.id, requestId, message: `Created time access profile ${profile.name} → RADIUS Login-Time: ${loginTimeString}` });
+  return created({ id: profile.id, name: profile.name, status: profile.status, radiusGroup: groupName, loginTime: loginTimeString }, requestId);
 });
+
+/**
+ * Convert schedule JSON to RADIUS Login-Time format
+ * Schedule: { mon: [{start:"08:00",end:"22:00"}], tue: [...], ... }
+ * Login-Time: "Wk0800-2200" (weekdays 8am-10pm) or "Wk0800-2200,Sa0000-2400" etc.
+ */
+function convertScheduleToLoginTime(scheduleStr: string): string | null {
+  try {
+    const schedule = JSON.parse(scheduleStr);
+    const dayMap: Record<string, string> = { mon: "Mo", tue: "Tu", wed: "We", thu: "Th", fri: "Fr", sat: "Sa", sun: "Su" };
+    const parts: string[] = [];
+
+    for (const [day, slots] of Object.entries(schedule)) {
+      const radiusDay = dayMap[day];
+      if (!radiusDay) continue;
+      for (const slot of slots as Array<{ start: string; end: string }>) {
+        const startTime = slot.start.replace(":", "");
+        const endTime = slot.end.replace(":", "").replace("23:59", "2400");
+        parts.push(`${radiusDay}${startTime}-${endTime}`);
+      }
+    }
+
+    return parts.length > 0 ? parts.join(",") : null;
+  } catch {
+    return null;
+  }
+}
