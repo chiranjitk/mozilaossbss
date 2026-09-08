@@ -1,0 +1,800 @@
+     1→     1→// =====================================================================
+     2→     2→// PROMOTIONS CLIENT — discount codes / coupons management
+     3→     3→// =====================================================================
+     4→     4→
+     5→     5→"use client";
+     6→     6→
+     7→     7→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     8→     8→import { useState, useMemo, useCallback } from "react";
+     9→     9→import type { ColumnDef } from "@tanstack/react-table";
+    10→    10→import { PageHeader } from "@/components/common/page-header";
+    11→    11→import { StatusBadge } from "@/components/common/status-badge";
+    12→    12→import { DataTable } from "@/components/common/data-table";
+    13→    13→import { Button } from "@/components/ui/button";
+    14→    14→import { Card } from "@/components/ui/card";
+    15→    15→import { Progress } from "@/components/ui/progress";
+    16→    16→import {
+    17→    17→  Dialog,
+    18→    18→  DialogContent,
+    19→    19→  DialogDescription,
+    20→    20→  DialogFooter,
+    21→    21→  DialogHeader,
+    22→    22→  DialogTitle,
+    23→    23→} from "@/components/ui/dialog";
+    24→    24→import {
+    25→    25→  AlertDialog,
+    26→    26→  AlertDialogAction,
+    27→    27→  AlertDialogCancel,
+    28→    28→  AlertDialogContent,
+    29→    29→  AlertDialogDescription,
+    30→    30→  AlertDialogFooter,
+    31→    31→  AlertDialogHeader,
+    32→    32→  AlertDialogTitle,
+    33→    33→} from "@/components/ui/alert-dialog";
+    34→    34→import { Input } from "@/components/ui/input";
+    35→    35→import { Label } from "@/components/ui/label";
+    36→    36→import { Textarea } from "@/components/ui/textarea";
+    37→    37→import {
+    38→    38→  Select,
+    39→    39→  SelectContent,
+    40→    40→  SelectItem,
+    41→    41→  SelectTrigger,
+    42→    42→  SelectValue,
+    43→    43→} from "@/components/ui/select";
+    44→    44→import { toast } from "sonner";
+    45→    45→import { format } from "date-fns";
+    46→    46→import {
+    47→    47→  Tag,
+    48→    48→  Plus,
+    49→    49→  Edit,
+    50→    50→  Trash2,
+    51→    51→  Copy,
+    52→    52→  Ticket,
+    53→    53→  CheckCircle2,
+    54→    54→  CalendarClock,
+    55→    55→  Percent,
+    56→    56→  DollarSign,
+    57→    57→} from "lucide-react";
+    58→    58→import { cn } from "@/lib/utils";
+    59→    59→
+    60→    60→interface PromotionItem {
+    61→    61→  id: string;
+    62→    62→  name: string;
+    63→    63→  code: string;
+    64→    64→  description: string | null;
+    65→    65→  type: string; // percentage | flat | free_trial
+    66→    66→  value: number;
+    67→    67→  maxUses: number | null;
+    68→    68→  usedCount: number;
+    69→    69→  validFrom: string;
+    70→    70→  validUntil: string;
+    71→    71→  status: string;
+    72→    72→  applicablePlans: string | null;
+    73→    73→  isExpired: boolean;
+    74→    74→  createdAt: string;
+    75→    75→  updatedAt: string;
+    76→    76→}
+    77→    77→
+    78→    78→interface PromotionFormValues {
+    79→    79→  name: string;
+    80→    80→  code: string;
+    81→    81→  description?: string;
+    82→    82→  type: "percentage" | "flat" | "free_trial";
+    83→    83→  value: number;
+    84→    84→  maxUses?: number | null;
+    85→    85→  validFrom: string;
+    86→    86→  validUntil: string;
+    87→    87→  status: "active" | "expired" | "depleted";
+    88→    88→  applicablePlans?: string;
+    89→    89→}
+    90→    90→
+    91→    91→const TYPES = [
+    92→    92→  { value: "percentage", label: "Percentage" },
+    93→    93→  { value: "flat", label: "Flat Amount" },
+    94→    94→  { value: "free_trial", label: "Free Trial" },
+    95→    95→];
+    96→    96→
+    97→    97→const TYPE_COLORS: Record<string, string> = {
+    98→    98→  percentage: "bg-brand/10 text-brand",
+    99→    99→  flat: "bg-success/10 text-success",
+   100→   100→  free_trial: "bg-info/10 text-info",
+   101→   101→};
+   102→   102→
+   103→   103→const TYPE_LABELS: Record<string, string> = {
+   104→   104→  percentage: "Percentage",
+   105→   105→  flat: "Flat",
+   106→   106→  free_trial: "Free Trial",
+   107→   107→};
+   108→   108→
+   109→   109→const formatCurrency = (n: number) =>
+   110→   110→  new Intl.NumberFormat("en-US", {
+   111→   111→    style: "currency",
+   112→   112→    currency: "USD",
+   113→   113→    maximumFractionDigits: 2,
+   114→   114→  }).format(n);
+   115→   115→
+   116→   116→async function fetchPromotions(params: {
+   117→   117→  page: number;
+   118→   118→  pageSize: number;
+   119→   119→  search: string;
+   120→   120→  status: string;
+   121→   121→  type: string;
+   122→   122→}): Promise<{ data: PromotionItem[]; total: number }> {
+   123→   123→  const url = new URL("/api/v1/promotions", window.location.origin);
+   124→   124→  url.searchParams.set("page", String(params.page));
+   125→   125→  url.searchParams.set("pageSize", String(params.pageSize));
+   126→   126→  if (params.search) url.searchParams.set("search", params.search);
+   127→   127→  if (params.status && params.status !== "all") url.searchParams.set("status", params.status);
+   128→   128→  if (params.type && params.type !== "all") url.searchParams.set("type", params.type);
+   129→   129→  const res = await fetch(url, { cache: "no-store" });
+   130→   130→  if (!res.ok) throw new Error("Failed to fetch promotions");
+   131→   131→  const json = await res.json();
+   132→   132→  return { data: json.data, total: json.meta.total };
+   133→   133→}
+   134→   134→
+   135→   135→async function savePromotion(
+   136→   136→  values: PromotionFormValues & { id?: string }
+   137→   137→): Promise<void> {
+   138→   138→  const isEdit = !!values.id;
+   139→   139→  const res = await fetch(
+   140→   140→    isEdit ? `/api/v1/promotions/${values.id}` : "/api/v1/promotions",
+   141→   141→    {
+   142→   142→      method: isEdit ? "PATCH" : "POST",
+   143→   143→      headers: { "Content-Type": "application/json" },
+   144→   144→      body: JSON.stringify(values),
+   145→   145→    }
+   146→   146→  );
+   147→   147→  if (!res.ok) {
+   148→   148→    const err = await res.json().catch(() => ({}));
+   149→   149→    throw new Error(err?.error?.message ?? "Failed to save promotion");
+   150→   150→  }
+   151→   151→}
+   152→   152→
+   153→   153→async function deletePromotion(id: string): Promise<void> {
+   154→   154→  const res = await fetch(`/api/v1/promotions/${id}`, { method: "DELETE" });
+   155→   155→  if (!res.ok) {
+   156→   156→    const err = await res.json().catch(() => ({}));
+   157→   157→    throw new Error(err?.error?.message ?? "Failed to delete promotion");
+   158→   158→  }
+   159→   159→}
+   160→   160→
+   161→   161→export function PromotionsClient() {
+   162→   162→  const queryClient = useQueryClient();
+   163→   163→  const [page, setPage] = useState(1);
+   164→   164→  const [pageSize, setPageSize] = useState(25);
+   165→   165→  const [search, setSearch] = useState("");
+   166→   166→  const [statusFilter, setStatusFilter] = useState("all");
+   167→   167→  const [typeFilter, setTypeFilter] = useState("all");
+   168→   168→  const [createOpen, setCreateOpen] = useState(false);
+   169→   169→  const [editTarget, setEditTarget] = useState<PromotionItem | null>(null);
+   170→   170→  const [deleteTarget, setDeleteTarget] = useState<PromotionItem | null>(null);
+   171→   171→
+   172→   172→  const { data, isLoading, isError, error, refetch } = useQuery({
+   173→   173→    queryKey: ["promotions", { page, pageSize, search, statusFilter, typeFilter }],
+   174→   174→    queryFn: () =>
+   175→   175→      fetchPromotions({
+   176→   176→        page,
+   177→   177→        pageSize,
+   178→   178→        search,
+   179→   179→        status: statusFilter,
+   180→   180→        type: typeFilter,
+   181→   181→      }),
+   182→   182→    placeholderData: (prev) => prev,
+   183→   183→  });
+   184→   184→
+   185→   185→  const saveMutation = useMutation({
+   186→   186→    mutationFn: (values: PromotionFormValues & { id?: string }) =>
+   187→   187→      savePromotion(values),
+   188→   188→    onSuccess: () => {
+   189→   189→      queryClient.invalidateQueries({ queryKey: ["promotions"] });
+   190→   190→      toast.success("Promotion saved");
+   191→   191→      setCreateOpen(false);
+   192→   192→      setEditTarget(null);
+   193→   193→    },
+   194→   194→    onError: (e: Error) => toast.error("Save failed", { description: e.message }),
+   195→   195→  });
+   196→   196→
+   197→   197→  const deleteMutation = useMutation({
+   198→   198→    mutationFn: (id: string) => deletePromotion(id),
+   199→   199→    onSuccess: () => {
+   200→   200→      queryClient.invalidateQueries({ queryKey: ["promotions"] });
+   201→   201→      toast.success("Promotion deleted");
+   202→   202→      setDeleteTarget(null);
+   203→   203→    },
+   204→   204→    onError: (e: Error) => toast.error("Delete failed", { description: e.message }),
+   205→   205→  });
+   206→   206→
+   207→   207→  const handleSearchChange = useCallback((v: string) => {
+   208→   208→    setSearch(v);
+   209→   209→    setPage(1);
+   210→   210→  }, []);
+   211→   211→
+   212→   212→  const handleCopyCode = (code: string) => {
+   213→   213→    navigator.clipboard.writeText(code);
+   214→   214→    toast.success("Code copied", { description: code });
+   215→   215→  };
+   216→   216→
+   217→   217→  const columns = useMemo<ColumnDef<PromotionItem>[]>(
+   218→   218→    () => [
+   219→   219→      {
+   220→   220→        id: "name",
+   221→   221→        header: "Promotion",
+   222→   222→        cell: ({ row }) => (
+   223→   223→          <div className="max-w-xs">
+   224→   224→            <p className="text-sm font-medium truncate">{row.original.name}</p>
+   225→   225→            {row.original.description && (
+   226→   226→              <p className="text-xs text-muted-foreground truncate pl-0">
+   227→   227→                {row.original.description}
+   228→   228→              </p>
+   229→   229→            )}
+   230→   230→          </div>
+   231→   231→        ),
+   232→   232→      },
+   233→   233→      {
+   234→   234→        id: "code",
+   235→   235→        header: "Code",
+   236→   236→        cell: ({ row }) => (
+   237→   237→          <button
+   238→   238→            onClick={() => handleCopyCode(row.original.code)}
+   239→   239→            className="font-mono text-xs text-brand hover:underline flex items-center gap-1"
+   240→   240→            title="Click to copy"
+   241→   241→          >
+   242→   242→            {row.original.code}
+   243→   243→            <Copy className="h-3 w-3 opacity-50" />
+   244→   244→          </button>
+   245→   245→        ),
+   246→   246→      },
+   247→   247→      {
+   248→   248→        id: "type",
+   249→   249→        header: "Type",
+   250→   250→        cell: ({ row }) => (
+   251→   251→          <span
+   252→   252→            className={cn(
+   253→   253→              "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium",
+   254→   254→              TYPE_COLORS[row.original.type] ?? "bg-muted text-muted-foreground"
+   255→   255→            )}
+   256→   256→          >
+   257→   257→            {TYPE_LABELS[row.original.type] ?? row.original.type}
+   258→   258→          </span>
+   259→   259→        ),
+   260→   260→      },
+   261→   261→      {
+   262→   262→        id: "value",
+   263→   263→        header: "Value",
+   264→   264→        cell: ({ row }) => {
+   265→   265→          const v = row.original.value;
+   266→   266→          if (row.original.type === "percentage") {
+   267→   267→            return (
+   268→   268→              <span className="text-sm tabular-nums font-medium flex items-center gap-1">
+   269→   269→                {v}%
+   270→   270→                <Percent className="h-3 w-3 text-muted-foreground" />
+   271→   271→              </span>
+   272→   272→            );
+   273→   273→          }
+   274→   274→          if (row.original.type === "flat") {
+   275→   275→            return (
+   276→   276→              <span className="text-sm tabular-nums font-medium">
+   277→   277→                {formatCurrency(v)}
+   278→   278→              </span>
+   279→   279→            );
+   280→   280→          }
+   281→   281→          return (
+   282→   282→            <span className="text-xs text-muted-foreground">
+   283→   283→              {v} day{v === 1 ? "" : "s"} free
+   284→   284→            </span>
+   285→   285→          );
+   286→   286→        },
+   287→   287→      },
+   288→   288→      {
+   289→   289→        id: "usage",
+   290→   290→        header: "Usage",
+   291→   291→        cell: ({ row }) => {
+   292→   292→          const used = row.original.usedCount;
+   293→   293→          const max = row.original.maxUses;
+   294→   294→          if (!max) {
+   295→   295→            return (
+   296→   296→              <span className="text-xs text-muted-foreground tabular-nums">
+   297→   297→                {used} used · unlimited
+   298→   298→              </span>
+   299→   299→            );
+   300→   300→          }
+   301→   301→          const pct = Math.min(100, Math.round((used / max) * 100));
+   302→   302→          return (
+   303→   303→            <div className="flex flex-col gap-1 min-w-28">
+   304→   304→              <span className="text-xs tabular-nums">
+   305→   305→                {used} / {max}
+   306→   306→              </span>
+   307→   307→              <Progress value={pct} className="h-1.5" />
+   308→   308→            </div>
+   309→   309→          );
+   310→   310→        },
+   311→   311→      },
+   312→   312→      {
+   313→   313→        id: "validPeriod",
+   314→   314→        header: "Valid Period",
+   315→   315→        cell: ({ row }) => (
+   316→   316→          <div className="flex flex-col text-xs">
+   317→   317→            <span>
+   318→   318→              {format(new Date(row.original.validFrom), "MMM d")} →{" "}
+   319→   319→              {format(new Date(row.original.validUntil), "MMM d, yyyy")}
+   320→   320→            </span>
+   321→   321→            <span
+   322→   322→              className={cn(
+   323→   323→                "text-[10px]",
+   324→   324→                row.original.isExpired ? "text-destructive" : "text-muted-foreground"
+   325→   325→              )}
+   326→   326→            >
+   327→   327→              {row.original.isExpired ? "Expired" : "Active window"}
+   328→   328→            </span>
+   329→   329→          </div>
+   330→   330→        ),
+   331→   331→      },
+   332→   332→      {
+   333→   333→        accessorKey: "status",
+   334→   334→        header: "Status",
+   335→   335→        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+   336→   336→      },
+   337→   337→      {
+   338→   338→        id: "actions",
+   339→   339→        header: "",
+   340→   340→        cell: ({ row }) => (
+   341→   341→          <div className="flex items-center justify-end gap-1">
+   342→   342→            <Button
+   343→   343→              variant="ghost"
+   344→   344→              size="icon"
+   345→   345→              className="h-8 w-8"
+   346→   346→              onClick={() => setEditTarget(row.original)}
+   347→   347→              aria-label="Edit promotion"
+   348→   348→            >
+   349→   349→              <Edit className="h-3.5 w-3.5" />
+   350→   350→            </Button>
+   351→   351→            <Button
+   352→   352→              variant="ghost"
+   353→   353→              size="icon"
+   354→   354→              className="h-8 w-8 hover:text-destructive"
+   355→   355→              onClick={() => setDeleteTarget(row.original)}
+   356→   356→              aria-label="Delete promotion"
+   357→   357→            >
+   358→   358→              <Trash2 className="h-3.5 w-3.5" />
+   359→   359→            </Button>
+   360→   360→          </div>
+   361→   361→        ),
+   362→   362→      },
+   363→   363→    ],
+   364→   364→    []
+   365→   365→  );
+   366→   366→
+   367→   367→  const promotions = data?.data ?? [];
+   368→   368→  const totalAll = data?.total ?? 0;
+   369→   369→  const activeCount = promotions.filter((p) => p.status === "active" && !p.isExpired).length;
+   370→   370→  const expiredCount = promotions.filter((p) => p.isExpired || p.status === "expired").length;
+   371→   371→  const totalUsed = promotions.reduce((sum, p) => sum + p.usedCount, 0);
+   372→   372→
+   373→   373→  return (
+   374→   374→    <>
+   375→   375→      <PageHeader
+   376→   376→        title="Promotions"
+   377→   377→        description="Manage discount codes, percentage-off coupons, and free trial offers applicable to plans."
+   378→   378→        actions={
+   379→   379→          <Button size="sm" onClick={() => setCreateOpen(true)}>
+   380→   380→            <Plus className="mr-2 h-3.5 w-3.5" /> New Promotion
+   381→   381→          </Button>
+   382→   382→        }
+   383→   383→      />
+   384→   384→
+   385→   385→      {/* Stats */}
+   386→   386→      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-5">
+   387→   387→        <Card className="p-4">
+   388→   388→          <div className="flex items-center gap-3">
+   389→   389→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand/10 text-brand">
+   390→   390→              <Tag className="h-4 w-4" />
+   391→   391→            </div>
+   392→   392→            <div>
+   393→   393→              <p className="text-xl font-semibold tabular-nums">{totalAll}</p>
+   394→   394→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   395→   395→                Total Promotions
+   396→   396→              </p>
+   397→   397→            </div>
+   398→   398→          </div>
+   399→   399→        </Card>
+   400→   400→        <Card className="p-4">
+   401→   401→          <div className="flex items-center gap-3">
+   402→   402→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-success/10 text-success">
+   403→   403→              <CheckCircle2 className="h-4 w-4" />
+   404→   404→            </div>
+   405→   405→            <div>
+   406→   406→              <p className="text-xl font-semibold tabular-nums">{activeCount}</p>
+   407→   407→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   408→   408→                Active Now
+   409→   409→              </p>
+   410→   410→            </div>
+   411→   411→          </div>
+   412→   412→        </Card>
+   413→   413→        <Card className="p-4">
+   414→   414→          <div className="flex items-center gap-3">
+   415→   415→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-warning/10 text-warning">
+   416→   416→              <CalendarClock className="h-4 w-4" />
+   417→   417→            </div>
+   418→   418→            <div>
+   419→   419→              <p className="text-xl font-semibold tabular-nums">{expiredCount}</p>
+   420→   420→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   421→   421→                Expired
+   422→   422→              </p>
+   423→   423→            </div>
+   424→   424→          </div>
+   425→   425→        </Card>
+   426→   426→        <Card className="p-4">
+   427→   427→          <div className="flex items-center gap-3">
+   428→   428→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-info/10 text-info">
+   429→   429→              <Ticket className="h-4 w-4" />
+   430→   430→            </div>
+   431→   431→            <div>
+   432→   432→              <p className="text-xl font-semibold tabular-nums">{totalUsed}</p>
+   433→   433→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   434→   434→                Times Used
+   435→   435→              </p>
+   436→   436→            </div>
+   437→   437→          </div>
+   438→   438→        </Card>
+   439→   439→      </div>
+   440→   440→
+   441→   441→      {/* Filters */}
+   442→   442→      <div className="flex flex-col gap-3 sm:flex-row sm:items-center mb-4">
+   443→   443→        <Select
+   444→   444→          value={statusFilter}
+   445→   445→          onValueChange={(v) => {
+   446→   446→            setStatusFilter(v);
+   447→   447→            setPage(1);
+   448→   448→          }}
+   449→   449→        >
+   450→   450→          <SelectTrigger className="h-9 w-full sm:w-44">
+   451→   451→            <SelectValue placeholder="Status" />
+   452→   452→          </SelectTrigger>
+   453→   453→          <SelectContent>
+   454→   454→            <SelectItem value="all">All status</SelectItem>
+   455→   455→            <SelectItem value="active">Active</SelectItem>
+   456→   456→            <SelectItem value="expired">Expired</SelectItem>
+   457→   457→            <SelectItem value="depleted">Depleted</SelectItem>
+   458→   458→          </SelectContent>
+   459→   459→        </Select>
+   460→   460→        <Select
+   461→   461→          value={typeFilter}
+   462→   462→          onValueChange={(v) => {
+   463→   463→            setTypeFilter(v);
+   464→   464→            setPage(1);
+   465→   465→          }}
+   466→   466→        >
+   467→   467→          <SelectTrigger className="h-9 w-full sm:w-44">
+   468→   468→            <SelectValue placeholder="Type" />
+   469→   469→          </SelectTrigger>
+   470→   470→          <SelectContent>
+   471→   471→            <SelectItem value="all">All types</SelectItem>
+   472→   472→            {TYPES.map((t) => (
+   473→   473→              <SelectItem key={t.value} value={t.value}>
+   474→   474→                {t.label}
+   475→   475→              </SelectItem>
+   476→   476→            ))}
+   477→   477→          </SelectContent>
+   478→   478→        </Select>
+   479→   479→      </div>
+   480→   480→
+   481→   481→      <DataTable
+   482→   482→        columns={columns}
+   483→   483→        data={promotions}
+   484→   484→        isLoading={isLoading}
+   485→   485→        isError={isError}
+   486→   486→        error={error?.message}
+   487→   487→        onRetry={() => refetch()}
+   488→   488→        pagination={{ page, pageSize, total: data?.total ?? 0 }}
+   489→   489→        onPaginationChange={(p, ps) => {
+   490→   490→          setPage(p);
+   491→   491→          setPageSize(ps);
+   492→   492→        }}
+   493→   493→        search={search}
+   494→   494→        onSearchChange={handleSearchChange}
+   495→   495→        searchPlaceholder="Search by name, code, description…"
+   496→   496→        emptyMessage="No promotions"
+   497→   497→        emptyDescription="Create a promotion to offer discounts and free trials."
+   498→   498→      />
+   499→   499→
+   500→   500→      {/* Create dialog */}
+   501→   501→      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   502→   502→        <DialogContent className="sm:max-w-lg">
+   503→   503→          <DialogHeader>
+   504→   504→            <DialogTitle className="flex items-center gap-2">
+   505→   505→              <Tag className="h-5 w-5 text-brand" /> New Promotion
+   506→   506→            </DialogTitle>
+   507→   507→            <DialogDescription>
+   508→   508→              Discount codes apply at checkout. Codes are auto-uppercased.
+   509→   509→            </DialogDescription>
+   510→   510→          </DialogHeader>
+   511→   511→          <PromotionForm
+   512→   512→            isSaving={saveMutation.isPending}
+   513→   513→            onSave={(values) => saveMutation.mutate(values)}
+   514→   514→          />
+   515→   515→        </DialogContent>
+   516→   516→      </Dialog>
+   517→   517→
+   518→   518→      {/* Edit dialog */}
+   519→   519→      <Dialog
+   520→   520→        open={!!editTarget}
+   521→   521→        onOpenChange={(o) => {
+   522→   522→          if (!o) setEditTarget(null);
+   523→   523→        }}
+   524→   524→      >
+   525→   525→        <DialogContent className="sm:max-w-lg">
+   526→   526→          <DialogHeader>
+   527→   527→            <DialogTitle className="flex items-center gap-2">
+   528→   528→              <Edit className="h-5 w-5 text-brand" /> Edit Promotion
+   529→   529→            </DialogTitle>
+   530→   530→            <DialogDescription>
+   531→   531→              Update <span className="font-medium text-foreground">{editTarget?.name}</span> (
+   532→   532→              <code className="font-mono text-xs">{editTarget?.code}</code>)
+   533→   533→            </DialogDescription>
+   534→   534→          </DialogHeader>
+   535→   535→          {editTarget && (
+   536→   536→            <PromotionForm
+   537→   537→              key={editTarget.id}
+   538→   538→              initial={editTarget}
+   539→   539→              isSaving={saveMutation.isPending}
+   540→   540→              onSave={(values) =>
+   541→   541→                saveMutation.mutate({ ...values, id: editTarget.id })
+   542→   542→              }
+   543→   543→            />
+   544→   544→          )}
+   545→   545→        </DialogContent>
+   546→   546→      </Dialog>
+   547→   547→
+   548→   548→      {/* Delete confirm */}
+   549→   549→      <AlertDialog
+   550→   550→        open={!!deleteTarget}
+   551→   551→        onOpenChange={(o) => {
+   552→   552→          if (!o) setDeleteTarget(null);
+   553→   553→        }}
+   554→   554→      >
+   555→   555→        <AlertDialogContent>
+   556→   556→          <AlertDialogHeader>
+   557→   557→            <AlertDialogTitle>Delete promotion?</AlertDialogTitle>
+   558→   558→            <AlertDialogDescription>
+   559→   559→              This will permanently delete <strong>{deleteTarget?.name}</strong> (
+   560→   560→              <code className="font-mono">{deleteTarget?.code}</code>). This action cannot be undone.
+   561→   561→            </AlertDialogDescription>
+   562→   562→          </AlertDialogHeader>
+   563→   563→          <AlertDialogFooter>
+   564→   564→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   565→   565→            <AlertDialogAction
+   566→   566→              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   567→   567→              disabled={deleteMutation.isPending}
+   568→   568→              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+   569→   569→            >
+   570→   570→              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+   571→   571→            </AlertDialogAction>
+   572→   572→          </AlertDialogFooter>
+   573→   573→        </AlertDialogContent>
+   574→   574→      </AlertDialog>
+   575→   575→    </>
+   576→   576→  );
+   577→   577→}
+   578→   578→
+   579→   579→// ---------------------------------------------------------------------
+   580→   580→// FORM — used for both create and edit
+   581→   581→// ---------------------------------------------------------------------
+   582→   582→
+   583→   583→function PromotionForm({
+   584→   584→  initial,
+   585→   585→  isSaving,
+   586→   586→  onSave,
+   587→   587→}: {
+   588→   588→  initial?: PromotionItem;
+   589→   589→  isSaving: boolean;
+   590→   590→  onSave: (values: PromotionFormValues) => void;
+   591→   591→}) {
+   592→   592→  const toLocalInput = (date: string | Date) => {
+   593→   593→    const d = typeof date === "string" ? new Date(date) : date;
+   594→   594→    return d.toISOString().slice(0, 16);
+   595→   595→  };
+   596→   596→
+   597→   597→  const [form, setForm] = useState<{
+   598→   598→    name: string;
+   599→   599→    code: string;
+   600→   600→    description: string;
+   601→   601→    type: PromotionFormValues["type"];
+   602→   602→    value: string;
+   603→   603→    maxUses: string;
+   604→   604→    validFrom: string;
+   605→   605→    validUntil: string;
+   606→   606→    status: PromotionFormValues["status"];
+   607→   607→    applicablePlans: string;
+   608→   608→  }>({
+   609→   609→    name: initial?.name ?? "",
+   610→   610→    code: initial?.code ?? "",
+   611→   611→    description: initial?.description ?? "",
+   612→   612→    type: (initial?.type as PromotionFormValues["type"]) ?? "percentage",
+   613→   613→    value: initial?.value?.toString() ?? "10",
+   614→   614→    maxUses: initial?.maxUses?.toString() ?? "",
+   615→   615→    validFrom: initial ? toLocalInput(initial.validFrom) : toLocalInput(new Date()),
+   616→   616→    validUntil: initial
+   617→   617→      ? toLocalInput(initial.validUntil)
+   618→   618→      : toLocalInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+   619→   619→    status: (initial?.status as PromotionFormValues["status"]) ?? "active",
+   620→   620→    applicablePlans: initial?.applicablePlans ?? "",
+   621→   621→  });
+   622→   622→
+   623→   623→  const valueNum = form.value ? parseFloat(form.value) : 0;
+   624→   624→  const maxUsesNum = form.maxUses ? parseInt(form.maxUses, 10) : null;
+   625→   625→
+   626→   626→  return (
+   627→   627→    <form
+   628→   628→      onSubmit={(e) => {
+   629→   629→        e.preventDefault();
+   630→   630→        onSave({
+   631→   631→          name: form.name,
+   632→   632→          code: form.code,
+   633→   633→          description: form.description || undefined,
+   634→   634→          type: form.type,
+   635→   635→          value: valueNum,
+   636→   636→          maxUses: maxUsesNum,
+   637→   637→          validFrom: new Date(form.validFrom).toISOString(),
+   638→   638→          validUntil: new Date(form.validUntil).toISOString(),
+   639→   639→          status: form.status,
+   640→   640→          applicablePlans: form.applicablePlans || undefined,
+   641→   641→        });
+   642→   642→      }}
+   643→   643→      className="space-y-4"
+   644→   644→    >
+   645→   645→      <div className="grid grid-cols-2 gap-3">
+   646→   646→        <div className="space-y-2">
+   647→   647→          <Label htmlFor="p-name">Name *</Label>
+   648→   648→          <Input
+   649→   649→            id="p-name"
+   650→   650→            value={form.name}
+   651→   651→            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+   652→   652→            placeholder="Summer Sale"
+   653→   653→            required
+   654→   654→          />
+   655→   655→        </div>
+   656→   656→        <div className="space-y-2">
+   657→   657→          <Label htmlFor="p-code">Code *</Label>
+   658→   658→          <Input
+   659→   659→            id="p-code"
+   660→   660→            value={form.code}
+   661→   661→            onChange={(e) =>
+   662→   662→              setForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))
+   663→   663→            }
+   664→   664→            placeholder="SUMMER25"
+   665→   665→            className="font-mono"
+   666→   666→            required
+   667→   667→          />
+   668→   668→        </div>
+   669→   669→      </div>
+   670→   670→      <div className="space-y-2">
+   671→   671→        <Label htmlFor="p-desc">Description</Label>
+   672→   672→        <Textarea
+   673→   673→          id="p-desc"
+   674→   674→          value={form.description}
+   675→   675→          onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+   676→   676→          placeholder="25% off for new subscribers…"
+   677→   677→          rows={2}
+   678→   678→        />
+   679→   679→      </div>
+   680→   680→      <div className="grid grid-cols-2 gap-3">
+   681→   681→        <div className="space-y-2">
+   682→   682→          <Label>Type</Label>
+   683→   683→          <Select
+   684→   684→            value={form.type}
+   685→   685→            onValueChange={(v: PromotionFormValues["type"]) =>
+   686→   686→              setForm((p) => ({ ...p, type: v }))
+   687→   687→            }
+   688→   688→          >
+   689→   689→            <SelectTrigger>
+   690→   690→              <SelectValue />
+   691→   691→            </SelectTrigger>
+   692→   692→            <SelectContent>
+   693→   693→              {TYPES.map((t) => (
+   694→   694→                <SelectItem key={t.value} value={t.value}>
+   695→   695→                  {t.label}
+   696→   696→                </SelectItem>
+   697→   697→              ))}
+   698→   698→            </SelectContent>
+   699→   699→          </Select>
+   700→   700→        </div>
+   701→   701→        <div className="space-y-2">
+   702→   702→          <Label htmlFor="p-value">
+   703→   703→            {form.type === "percentage"
+   704→   704→              ? "Discount (%)"
+   705→   705→              : form.type === "flat"
+   706→   706→              ? "Amount (USD)"
+   707→   707→              : "Trial Days"}
+   708→   708→          </Label>
+   709→   709→          <div className="relative">
+   710→   710→            <Input
+   711→   711→              id="p-value"
+   712→   712→              type="number"
+   713→   713→              min="0"
+   714→   714→              step="any"
+   715→   715→              value={form.value}
+   716→   716→              onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))}
+   717→   717→              required
+   718→   718→              className={form.type !== "flat" ? "pr-9" : "pl-7"}
+   719→   719→            />
+   720→   720→            {form.type === "flat" && (
+   721→   721→              <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   722→   722→            )}
+   723→   723→            {form.type === "percentage" && (
+   724→   724→              <Percent className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   725→   725→            )}
+   726→   726→          </div>
+   727→   727→        </div>
+   728→   728→      </div>
+   729→   729→      <div className="grid grid-cols-2 gap-3">
+   730→   730→        <div className="space-y-2">
+   731→   731→          <Label htmlFor="p-from">Valid From *</Label>
+   732→   732→          <Input
+   733→   733→            id="p-from"
+   734→   734→            type="datetime-local"
+   735→   735→            value={form.validFrom}
+   736→   736→            onChange={(e) => setForm((p) => ({ ...p, validFrom: e.target.value }))}
+   737→   737→            required
+   738→   738→          />
+   739→   739→        </div>
+   740→   740→        <div className="space-y-2">
+   741→   741→          <Label htmlFor="p-until">Valid Until *</Label>
+   742→   742→          <Input
+   743→   743→            id="p-until"
+   744→   744→            type="datetime-local"
+   745→   745→            value={form.validUntil}
+   746→   746→            onChange={(e) => setForm((p) => ({ ...p, validUntil: e.target.value }))}
+   747→   747→            required
+   748→   748→          />
+   749→   749→        </div>
+   750→   750→      </div>
+   751→   751→      <div className="grid grid-cols-2 gap-3">
+   752→   752→        <div className="space-y-2">
+   753→   753→          <Label htmlFor="p-max">Max Uses (blank = unlimited)</Label>
+   754→   754→          <Input
+   755→   755→            id="p-max"
+   756→   756→            type="number"
+   757→   757→            min="1"
+   758→   758→            value={form.maxUses}
+   759→   759→            onChange={(e) => setForm((p) => ({ ...p, maxUses: e.target.value }))}
+   760→   760→            placeholder="unlimited"
+   761→   761→          />
+   762→   762→        </div>
+   763→   763→        <div className="space-y-2">
+   764→   764→          <Label>Status</Label>
+   765→   765→          <Select
+   766→   766→            value={form.status}
+   767→   767→            onValueChange={(v: PromotionFormValues["status"]) =>
+   768→   768→              setForm((p) => ({ ...p, status: v }))
+   769→   769→            }
+   770→   770→          >
+   771→   771→            <SelectTrigger>
+   772→   772→              <SelectValue />
+   773→   773→            </SelectTrigger>
+   774→   774→            <SelectContent>
+   775→   775→              <SelectItem value="active">Active</SelectItem>
+   776→   776→              <SelectItem value="expired">Expired</SelectItem>
+   777→   777→              <SelectItem value="depleted">Depleted</SelectItem>
+   778→   778→            </SelectContent>
+   779→   779→          </Select>
+   780→   780→        </div>
+   781→   781→      </div>
+   782→   782→      <div className="space-y-2">
+   783→   783→        <Label htmlFor="p-plans">Applicable Plans (comma-separated plan IDs, blank = all)</Label>
+   784→   784→        <Input
+   785→   785→          id="p-plans"
+   786→   786→          value={form.applicablePlans}
+   787→   787→          onChange={(e) => setForm((p) => ({ ...p, applicablePlans: e.target.value }))}
+   788→   788→          placeholder="plan_basic,plan_premium"
+   789→   789→          className="font-mono text-xs"
+   790→   790→        />
+   791→   791→      </div>
+   792→   792→      <DialogFooter>
+   793→   793→        <Button type="submit" disabled={isSaving || !form.name || !form.code}>
+   794→   794→          {isSaving ? "Saving…" : initial ? "Save Changes" : "Create Promotion"}
+   795→   795→        </Button>
+   796→   796→      </DialogFooter>
+   797→   797→    </form>
+   798→   798→  );
+   799→   799→}
+   800→   800→

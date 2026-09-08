@@ -1,0 +1,918 @@
+     1→// =====================================================================
+     2→// MODULE CATALOG — All Cryptsk modules declared here.
+     3→// This is the authoritative functional scope of the platform.
+     4→// New modules MUST be added here with full metadata.
+     5→// =====================================================================
+     6→
+     7→import type { CryptskModule } from "./types";
+     8→
+     9→export const MODULE_CATALOG: CryptskModule[] = [
+    10→  // -------------------------------------------------------------------
+    11→  // CORE (cannot be disabled)
+    12→  // -------------------------------------------------------------------
+    13→  {
+    14→    id: "core",
+    15→    name: "Core Platform",
+    16→    description:
+    17→      "Authentication, authorization, audit, system configuration, and module management. The foundation every Cryptsk deployment requires.",
+    18→    version: "1.0.0",
+    19→    category: "core",
+    20→    permissions: [
+    21→      "system.settings.read",
+    22→      "system.settings.update",
+    23→      "module.manage",
+    24→      "audit.read",
+    25→      "role.manage",
+    26→      "user.manage",
+    27→    ],
+    28→    resources: ["full-stack"],
+    29→    hasWorker: false,
+    30→    requiresExternalConnection: false,
+    31→    defaultEnabled: true,
+    32→    coreModule: true,
+    33→    licenseTier: "community",
+    34→    navigation: [
+    35→      {
+    36→        id: "dashboard",
+    37→        label: "Dashboard",
+    38→        icon: "LayoutDashboard",
+    39→        children: [
+    40→          {
+    41→            id: "dashboard-overview",
+    42→            label: "Overview",
+    43→            icon: "Gauge",
+    44→            href: "/",
+    45→          },
+    46→        ],
+    47→      },
+    48→      {
+    49→        id: "admin",
+    50→        label: "Administration",
+    51→        icon: "Settings",
+    52→        permission: "system.settings.read",
+    53→        children: [
+    54→          {
+    55→            id: "modules",
+    56→            label: "Module Manager",
+    57→            icon: "Boxes",
+    58→            href: "/admin/modules",
+    59→            permission: "module.manage",
+    60→          },
+    61→          {
+    62→            id: "users",
+    63→            label: "Users",
+    64→            icon: "Users",
+    65→            href: "/admin/users",
+    66→            permission: "user.manage",
+    67→          },
+    68→          {
+    69→            id: "roles",
+    70→            label: "Roles & Permissions",
+    71→            icon: "ShieldCheck",
+    72→            href: "/admin/roles",
+    73→            permission: "role.manage",
+    74→          },
+    75→          {
+    76→            id: "audit",
+    77→            label: "Audit Log",
+    78→            icon: "ScrollText",
+    79→            href: "/admin/audit",
+    80→            permission: "audit.read",
+    81→          },
+    82→          {
+    83→            id: "settings",
+    84→            label: "System Settings",
+    85→            icon: "Settings",
+    86→            href: "/admin/settings",
+    87→            permission: "system.settings.read",
+    88→          },
+    89→        ],
+    90→      },
+    91→    ],
+    92→  },
+    93→
+    94→  // -------------------------------------------------------------------
+    95→  // CUSTOMER MANAGEMENT
+    96→  // -------------------------------------------------------------------
+    97→  {
+    98→    id: "subscribers",
+    99→    name: "Subscribers",
+   100→    description:
+   101→      "Subscriber lifecycle: create, provision, assign plans, suspend, reactivate, terminate. Customer 360 view with full history.",
+   102→    version: "1.0.0",
+   103→    category: "customer",
+   104→    industries: ["isp", "telecom", "hospitality"],
+   105→    dependencies: ["core"],
+   106→    permissions: [
+   107→      "subscriber.read",
+   108→      "subscriber.create",
+   109→      "subscriber.update",
+   110→      "subscriber.delete",
+   111→      "subscriber.suspend",
+   112→      "subscriber.reactivate",
+   113→      "subscriber.terminate",
+   114→      "subscriber.import",
+   115→      "subscriber.export",
+   116→    ],
+   117→    resources: ["full-stack"],
+   118→    hasWorker: false,
+   119→    requiresExternalConnection: false,
+   120→    defaultEnabled: true,
+   121→    coreModule: false,
+   122→    licenseTier: "standard",
+   123→    navigation: [
+   124→      {
+   125→        id: "customer",
+   126→        label: "Customers",
+   127→        icon: "Users",
+   128→        permission: "subscriber.read",
+   129→        children: [
+   130→          {
+   131→            id: "subscribers-list",
+   132→            label: "Subscribers",
+   133→            icon: "UserCircle",
+   134→            href: "/subscribers",
+   135→            permission: "subscriber.read",
+   136→          },
+   137→          {
+   138→            id: "plans",
+   139→            label: "Plans",
+   140→            icon: "Package",
+   141→            href: "/plans",
+   142→            permission: "subscriber.read",
+   143→          },
+   144→          {
+   145→            id: "batch-provisioning",
+   146→            label: "Batch Provisioning",
+   147→            icon: "UserPlus",
+   148→            href: "/subscribers/batch",
+   149→            permission: "subscriber.create",
+   150→          },
+   151→        ],
+   152→      },
+   153→    ],
+   154→  },
+   155→
+   156→  // -------------------------------------------------------------------
+   157→  // AAA — the strategic differentiator
+   158→  // -------------------------------------------------------------------
+   159→  {
+   160→    id: "aaa",
+   161→    name: "AAA & RADIUS Gateway",
+   162→    description:
+   163→      "Full RADIUS Authentication, Authorization, and Accounting. Active session management, CoA, Disconnect, session history. Production target: 100K concurrent sessions.",
+   164→    version: "1.0.0",
+   165→    category: "aaa",
+   166→    industries: ["isp", "telecom", "enterprise", "campus"],
+   167→    dependencies: ["core", "subscribers"],
+   168→    permissions: [
+   169→      "aaa.session.read",
+   170→      "aaa.session.disconnect",
+   171→      "aaa.session.coa",
+   172→      "aaa.nas.read",
+   173→      "aaa.nas.create",
+   174→      "aaa.nas.update",
+   175→      "aaa.nas.delete",
+   176→      "aaa.history.read",
+   177→      "aaa.authlog.read",
+   178→      "aaa.radius.configure",
+   179→    ],
+   180→    resources: ["full-stack", "with-worker", "external-connection"],
+   181→    hasWorker: true,
+   182→    requiresExternalConnection: true,
+   183→    defaultEnabled: true,
+   184→    coreModule: false,
+   185→    licenseTier: "enterprise",
+   186→    navigation: [
+   187→      {
+   188→        id: "aaa",
+   189→        label: "AAA & Access",
+   190→        icon: "KeyRound",
+   191→        permission: "aaa.session.read",
+   192→        children: [
+   193→          {
+   194→            id: "active-sessions",
+   195→            label: "Active Sessions",
+   196→            icon: "Radio",
+   197→            href: "/aaa/sessions",
+   198→            permission: "aaa.session.read",
+   199→            badgeKey: "activeSessions",
+   200→          },
+   201→          {
+   202→            id: "session-history",
+   203→            label: "Session History",
+   204→            icon: "History",
+   205→            href: "/aaa/history",
+   206→            permission: "aaa.history.read",
+   207→          },
+   208→          {
+   209→            id: "nas-clients",
+   210→            label: "NAS Clients",
+   211→            icon: "Server",
+   212→            href: "/aaa/nas",
+   213→            permission: "aaa.nas.read",
+   214→          },
+   215→          {
+   216→            id: "auth-logs",
+   217→            label: "Authentication Logs",
+   218→            icon: "FileKey",
+   219→            href: "/aaa/logs",
+   220→            permission: "aaa.authlog.read",
+   221→          },
+   222→          {
+   223→            id: "radius-config",
+   224→            label: "RADIUS Configuration",
+   225→            icon: "Settings2",
+   226→            href: "/aaa/radius",
+   227→            permission: "aaa.radius.configure",
+   228→          },
+   229→          {
+   230→            id: "captive-portal",
+   231→            label: "Captive Portal",
+   232→            icon: "Wifi",
+   233→            href: "/aaa/captive-portal",
+   234→            permission: "aaa.nas.read",
+   235→          },
+   236→          {
+   237→            id: "radius-proxy",
+   238→            label: "RADIUS Proxy",
+   239→            icon: "Shuffle",
+   240→            href: "/aaa/proxy",
+   241→            permission: "aaa.nas.read",
+   242→          },
+   243→          {
+   244→            id: "coa-events",
+   245→            label: "CoA Events",
+   246→            icon: "Zap",
+   247→            href: "/aaa/coa",
+   248→            permission: "aaa.nas.read",
+   249→          },
+   250→          {
+   251→            id: "radius-attributes",
+   252→            label: "RADIUS Attributes",
+   253→            icon: "ListTree",
+   254→            href: "/aaa/attributes",
+   255→            permission: "aaa.nas.read",
+   256→          },
+   257→        ],
+   258→      },
+   259→    ],
+   260→  },
+   261→
+   262→  // -------------------------------------------------------------------
+   263→  // NETWORK
+   264→  // -------------------------------------------------------------------
+   265→  {
+   266→    id: "network",
+   267→    name: "Network Management",
+   268→    description:
+   269→      "IPAM, subnets, DHCP, DNS, PPPoE, system interfaces, MultiWAN, dynamic routing. Production adapters; sandbox-safe stubs documented as external dependencies.",
+   270→    version: "1.0.0",
+   271→    category: "network",
+   272→    industries: ["isp", "telecom", "enterprise", "datacenter"],
+   273→    dependencies: ["core"],
+   274→    permissions: [
+   275→      "network.ipam.read",
+   276→      "network.ipam.write",
+   277→      "network.dhcp.read",
+   278→      "network.dhcp.write",
+   279→      "network.dns.read",
+   280→      "network.dns.write",
+   281→      "network.interface.read",
+   282→      "network.pppoe.read",
+   283→      "network.pppoe.write",
+   284→      "network.network.read",
+   285→      "network.network.write",
+   286→    ],
+   287→    resources: ["full-stack", "external-connection"],
+   288→    hasWorker: true,
+   289→    requiresExternalConnection: true,
+   290→    defaultEnabled: true,
+   291→    coreModule: false,
+   292→    licenseTier: "enterprise",
+   293→    navigation: [
+   294→      {
+   295→        id: "network",
+   296→        label: "Network",
+   297→        icon: "Network",
+   298→        permission: "network.ipam.read",
+   299→        children: [
+   300→          {
+   301→            id: "ipam",
+   302→            label: "IPAM",
+   303→            icon: "Subnet",
+   304→            href: "/network/ipam",
+   305→            permission: "network.ipam.read",
+   306→          },
+   307→          {
+   308→            id: "subnets",
+   309→            label: "Subnets",
+   310→            icon: "GitBranch",
+   311→            href: "/network/subnets",
+   312→            permission: "network.ipam.read",
+   313→          },
+   314→          {
+   315→            id: "dhcp",
+   316→            label: "DHCP",
+   317→            icon: "Server",
+   318→            href: "/network/dhcp",
+   319→            permission: "network.dhcp.read",
+   320→          },
+   321→          {
+   322→            id: "dns",
+   323→            label: "DNS",
+   324→            icon: "Globe",
+   325→            href: "/network/dns",
+   326→            permission: "network.dns.read",
+   327→          },
+   328→          {
+   329→            id: "interfaces",
+   330→            label: "Interfaces",
+   331→            icon: "Cable",
+   332→            href: "/network/interfaces",
+   333→            permission: "network.interface.read",
+   334→          },
+   335→        ],
+   336→      },
+   337→    ],
+   338→  },
+   339→
+   340→  // -------------------------------------------------------------------
+   341→  // POLICY
+   342→  // -------------------------------------------------------------------
+   343→  {
+   344→    id: "policy",
+   345→    name: "Policy & QoS",
+   346→    description:
+   347→      "Bandwidth management, QoS queues, time-based access, firewall rules, security profiles, IPS. Integrates with subscribers and plans.",
+   348→    version: "1.0.0",
+   349→    category: "policy",
+   350→    industries: ["isp", "telecom", "enterprise", "campus"],
+   351→    dependencies: ["core", "subscribers"],
+   352→    permissions: [
+   353→      "policy.bandwidth.read",
+   354→      "policy.bandwidth.write",
+   355→      "policy.qos.read",
+   356→      "policy.qos.write",
+   357→      "policy.firewall.read",
+   358→      "policy.firewall.write",
+   359→      "policy.timeaccess.read",
+   360→      "policy.timeaccess.write",
+   361→    ],
+   362→    resources: ["full-stack"],
+   363→    hasWorker: false,
+   364→    requiresExternalConnection: false,
+   365→    defaultEnabled: true,
+   366→    coreModule: false,
+   367→    licenseTier: "enterprise",
+   368→    navigation: [
+   369→      {
+   370→        id: "policy",
+   371→        label: "Policy",
+   372→        icon: "Shield",
+   373→        permission: "policy.bandwidth.read",
+   374→        children: [
+   375→          {
+   376→            id: "bandwidth",
+   377→            label: "Bandwidth Profiles",
+   378→            icon: "Gauge",
+   379→            href: "/policy/bandwidth",
+   380→            permission: "policy.bandwidth.read",
+   381→          },
+   382→          {
+   383→            id: "qos",
+   384→            label: "QoS Queues",
+   385→            icon: "Layers",
+   386→            href: "/policy/qos",
+   387→            permission: "policy.qos.read",
+   388→          },
+   389→          {
+   390→            id: "firewall",
+   391→            label: "Firewall Rules",
+   392→            icon: "Flame",
+   393→            href: "/policy/firewall",
+   394→            permission: "policy.firewall.read",
+   395→          },
+   396→          {
+   397→            id: "time-access",
+   398→            label: "Time Access",
+   399→            icon: "Clock",
+   400→            href: "/policy/time-access",
+   401→            permission: "policy.timeaccess.read",
+   402→          },
+   403→        ],
+   404→      },
+   405→    ],
+   406→  },
+   407→
+   408→  // -------------------------------------------------------------------
+   409→  // MONITORING
+   410→  // -------------------------------------------------------------------
+   411→  {
+   412→    id: "monitoring",
+   413→    name: "Monitoring & Analytics",
+   414→    description:
+   415→      "Real-time bandwidth, traffic analytics, uptime, latency, alerts, syslog, diagnostics, IP-MAC history, zone budgets.",
+   416→    version: "1.0.0",
+   417→    category: "monitoring",
+   418→    dependencies: ["core"],
+   419→    permissions: [
+   420→      "monitoring.read",
+   421→      "monitoring.alerts.read",
+   422→      "monitoring.alerts.ack",
+   423→      "monitoring.logs.read",
+   424→      "monitoring.diagnose",
+   425→    ],
+   426→    resources: ["full-stack", "with-worker"],
+   427→    hasWorker: true,
+   428→    requiresExternalConnection: false,
+   429→    defaultEnabled: true,
+   430→    coreModule: false,
+   431→    licenseTier: "standard",
+   432→    navigation: [
+   433→      {
+   434→        id: "monitoring",
+   435→        label: "Monitoring",
+   436→        icon: "Activity",
+   437→        permission: "monitoring.read",
+   438→        children: [
+   439→          {
+   440→            id: "bandwidth",
+   441→            label: "Bandwidth",
+   442→            icon: "TrendingUp",
+   443→            href: "/monitoring/bandwidth",
+   444→            permission: "monitoring.read",
+   445→          },
+   446→          {
+   447→            id: "traffic",
+   448→            label: "Traffic Analytics",
+   449→            icon: "BarChart3",
+   450→            href: "/monitoring/traffic",
+   451→            permission: "monitoring.read",
+   452→          },
+   453→          {
+   454→            id: "alerts",
+   455→            label: "Alerts",
+   456→            icon: "Bell",
+   457→            href: "/monitoring/alerts",
+   458→            permission: "monitoring.alerts.read",
+   459→            badgeKey: "openAlerts",
+   460→          },
+   461→          {
+   462→            id: "uptime",
+   463→            label: "Uptime & Latency",
+   464→            icon: "Pulse",
+   465→            href: "/monitoring/uptime",
+   466→            permission: "monitoring.read",
+   467→          },
+   468→          {
+   469→            id: "syslog",
+   470→            label: "Syslog",
+   471→            icon: "FileText",
+   472→            href: "/monitoring/syslog",
+   473→            permission: "monitoring.logs.read",
+   474→          },
+   475→        ],
+   476→      },
+   477→    ],
+   478→  },
+   479→
+   480→  // -------------------------------------------------------------------
+   481→  // BILLING
+   482→  // -------------------------------------------------------------------
+   483→  {
+   484→    id: "billing",
+   485→    name: "Billing & Invoicing",
+   486→    description:
+   487→      "Recurring/cyclic billing, invoices, grace periods, suspension automation, add-ons, top-ups, vouchers, discounts, tax. Decimal-safe money.",
+   488→    version: "1.0.0",
+   489→    category: "finance",
+   490→    dependencies: ["core", "subscribers"],
+   491→    permissions: [
+   492→      "billing.invoice.read",
+   493→      "billing.invoice.create",
+   494→      "billing.invoice.update",
+   495→      "billing.invoice.cancel",
+   496→      "billing.run",
+   497→      "billing.voucher.read",
+   498→      "billing.voucher.write",
+   499→    ],
+   500→    resources: ["full-stack", "with-worker", "scheduled-jobs"],
+   501→    hasWorker: true,
+   502→    requiresExternalConnection: false,
+   503→    defaultEnabled: true,
+   504→    coreModule: false,
+   505→    licenseTier: "standard",
+   506→    navigation: [
+   507→      {
+   508→        id: "billing",
+   509→        label: "Billing",
+   510→        icon: "ReceiptText",
+   511→        permission: "billing.invoice.read",
+   512→        children: [
+   513→          {
+   514→            id: "invoices",
+   515→            label: "Invoices",
+   516→            icon: "FileText",
+   517→            href: "/billing/invoices",
+   518→            permission: "billing.invoice.read",
+   519→          },
+   520→          {
+   521→            id: "run-billing",
+   522→            label: "Run Billing",
+   523→            icon: "Play",
+   524→            href: "/billing/run",
+   525→            permission: "billing.run",
+   526→          },
+   527→          {
+   528→            id: "vouchers",
+   529→            label: "Vouchers",
+   530→            icon: "Ticket",
+   531→            href: "/billing/vouchers",
+   532→            permission: "billing.voucher.read",
+   533→          },
+   534→        ],
+   535→      },
+   536→    ],
+   537→  },
+   538→
+   539→  // -------------------------------------------------------------------
+   540→  // PAYMENTS
+   541→  // -------------------------------------------------------------------
+   542→  {
+   543→    id: "payments",
+   544→    name: "Payments",
+   545→    description:
+   546→      "Payment gateway abstraction, adapter architecture (Stripe, Razorpay, PayPal, manual), reconciliation, refunds, payment history.",
+   547→    version: "1.0.0",
+   548→    category: "finance",
+   549→    dependencies: ["core", "billing"],
+   550→    permissions: [
+   551→      "payment.read",
+   552→      "payment.create",
+   553→      "payment.refund",
+   554→      "payment.reconcile",
+   555→      "payment.gateway.configure",
+   556→    ],
+   557→    resources: ["full-stack", "external-connection"],
+   558→    hasWorker: false,
+   559→    requiresExternalConnection: true,
+   560→    defaultEnabled: true,
+   561→    coreModule: false,
+   562→    licenseTier: "standard",
+   563→    navigation: [
+   564→      {
+   565→        id: "payments",
+   566→        label: "Payments",
+   567→        icon: "CreditCard",
+   568→        permission: "payment.read",
+   569→        children: [
+   570→          {
+   571→            id: "payments-list",
+   572→            label: "Payments",
+   573→            icon: "CircleDollarSign",
+   574→            href: "/payments",
+   575→            permission: "payment.read",
+   576→          },
+   577→          {
+   578→            id: "gateways",
+   579→            label: "Payment Gateways",
+   580→            icon: "Plug",
+   581→            href: "/payments/gateways",
+   582→            permission: "payment.gateway.configure",
+   583→          },
+   584→          {
+   585→            id: "reconciliation",
+   586→            label: "Reconciliation",
+   587→            icon: "Scale",
+   588→            href: "/payments/reconciliation",
+   589→            permission: "payment.reconcile",
+   590→          },
+   591→        ],
+   592→      },
+   593→    ],
+   594→  },
+   595→
+   596→  // -------------------------------------------------------------------
+   597→  // OPERATIONS
+   598→  // -------------------------------------------------------------------
+   599→  {
+   600→    id: "operations",
+   601→    name: "Operations",
+   602→    description:
+   603→      "Complaints, technicians, agents, installations, inventory, incidents, leads, resellers, action history, announcements.",
+   604→    version: "1.0.0",
+   605→    category: "operations",
+   606→    dependencies: ["core", "subscribers"],
+   607→    permissions: [
+   608→      "ops.complaint.read",
+   609→      "ops.complaint.write",
+   610→      "ops.technician.read",
+   611→      "ops.technician.write",
+   612→      "ops.installation.read",
+   613→      "ops.installation.write",
+   614→      "ops.inventory.read",
+   615→      "ops.inventory.write",
+   616→      "ops.incident.read",
+   617→      "ops.incident.write",
+   618→      "ops.lead.read",
+   619→      "ops.lead.write",
+   620→    ],
+   621→    resources: ["full-stack"],
+   622→    hasWorker: false,
+   623→    requiresExternalConnection: false,
+   624→    defaultEnabled: true,
+   625→    coreModule: false,
+   626→    licenseTier: "standard",
+   627→    navigation: [
+   628→      {
+   629→        id: "operations",
+   630→        label: "Operations",
+   631→        icon: "Wrench",
+   632→        permission: "ops.complaint.read",
+   633→        children: [
+   634→          {
+   635→            id: "complaints",
+   636→            label: "Complaints",
+   637→            icon: "MessageSquareWarning",
+   638→            href: "/operations/complaints",
+   639→            permission: "ops.complaint.read",
+   640→            badgeKey: "openComplaints",
+   641→          },
+   642→          {
+   643→            id: "technicians",
+   644→            label: "Technicians",
+   645→            icon: "HardHat",
+   646→            href: "/operations/technicians",
+   647→            permission: "ops.technician.read",
+   648→          },
+   649→          {
+   650→            id: "installations",
+   651→            label: "Installations",
+   652→            icon: "Hammer",
+   653→            href: "/operations/installations",
+   654→            permission: "ops.installation.read",
+   655→          },
+   656→          {
+   657→            id: "inventory",
+   658→            label: "Inventory",
+   659→            icon: "Boxes",
+   660→            href: "/operations/inventory",
+   661→            permission: "ops.inventory.read",
+   662→          },
+   663→          {
+   664→            id: "incidents",
+   665→            label: "Incidents",
+   666→            icon: "AlertTriangle",
+   667→            href: "/operations/incidents",
+   668→            permission: "ops.incident.read",
+   669→            badgeKey: "openIncidents",
+   670→          },
+   671→          {
+   672→            id: "areas",
+   673→            label: "Areas & Zones",
+   674→            icon: "MapPin",
+   675→            href: "/operations/areas",
+   676→            permission: "network.network.read",
+   677→          },
+   678→        ],
+   679→      },
+   680→    ],
+   681→  },
+   682→
+   683→  // -------------------------------------------------------------------
+   684→  // FINANCE & INTELLIGENCE
+   685→  // -------------------------------------------------------------------
+   686→  {
+   687→    id: "finance",
+   688→    name: "Finance & Intelligence",
+   689→    description:
+   690→      "Revenue reports, forecasting, collections, due recovery, GST/tax, referrals, loyalty, smart collections, revenue leakage, compliance, SLA, reseller intelligence, data export.",
+   691→    version: "1.0.0",
+   692→    category: "finance",
+   693→    dependencies: ["core", "billing", "payments"],
+   694→    permissions: [
+   695→      "finance.report.read",
+   696→      "finance.report.export",
+   697→      "finance.collection.read",
+   698→      "finance.collection.write",
+   699→      "finance.tax.read",
+   700→      "finance.tax.write",
+   701→    ],
+   702→    resources: ["full-stack", "scheduled-jobs"],
+   703→    hasWorker: true,
+   704→    requiresExternalConnection: false,
+   705→    defaultEnabled: true,
+   706→    coreModule: false,
+   707→    licenseTier: "enterprise",
+   708→    navigation: [
+   709→      {
+   710→        id: "finance",
+   711→        label: "Finance",
+   712→        icon: "Landmark",
+   713→        permission: "finance.report.read",
+   714→        children: [
+   715→          {
+   716→            id: "revenue",
+   717→            label: "Revenue Reports",
+   718→            icon: "DollarSign",
+   719→            href: "/finance/revenue",
+   720→            permission: "finance.report.read",
+   721→          },
+   722→          {
+   723→            id: "collections",
+   724→            label: "Collections",
+   725→            icon: "Wallet",
+   726→            href: "/finance/collections",
+   727→            permission: "finance.collection.read",
+   728→          },
+   729→          {
+   730→            id: "tax",
+   731→            label: "Tax / GST",
+   732→            icon: "Receipt",
+   733→            href: "/finance/tax",
+   734→            permission: "finance.tax.read",
+   735→          },
+   736→        ],
+   737→      },
+   738→    ],
+   739→  },
+   740→
+   741→  // -------------------------------------------------------------------
+   742→  // DEVICE MANAGEMENT
+   743→  // -------------------------------------------------------------------
+   744→  {
+   745→    id: "devices",
+   746→    name: "Device Management",
+   747→    description:
+   748→      "TR-069 ACS, MikroTik Manager, SSH Device Manager, SNMP Manager, OLT/GPON management. Adapter architecture per device family.",
+   749→    version: "1.0.0",
+   750→    category: "devices",
+   751→    industries: ["isp", "telecom", "enterprise"],
+   752→    dependencies: ["core", "network"],
+   753→    permissions: [
+   754→      "device.read",
+   755→      "device.write",
+   756→      "device.tr069.read",
+   757→      "device.tr069.write",
+   758→      "device.mikrotik.read",
+   759→      "device.mikrotik.write",
+   760→      "device.gpon.read",
+   761→      "device.gpon.write",
+   762→    ],
+   763→    resources: ["full-stack", "external-connection"],
+   764→    hasWorker: true,
+   765→    requiresExternalConnection: true,
+   766→    defaultEnabled: false,
+   767→    coreModule: false,
+   768→    licenseTier: "enterprise",
+   769→    navigation: [
+   770→      {
+   771→        id: "devices",
+   772→        label: "Devices",
+   773→        icon: "Router",
+   774→        permission: "device.read",
+   775→        children: [
+   776→          {
+   777→            id: "tr069",
+   778→            label: "TR-069 ACS",
+   779→            icon: "Cpu",
+   780→            href: "/devices/tr069",
+   781→            permission: "device.tr069.read",
+   782→          },
+   783→          {
+   784→            id: "mikrotik",
+   785→            label: "MikroTik",
+   786→            icon: "Router",
+   787→            href: "/devices/mikrotik",
+   788→            permission: "device.mikrotik.read",
+   789→          },
+   790→          {
+   791→            id: "gpon",
+   792→            label: "GPON / OLT",
+   793→            icon: "Cable",
+   794→            href: "/devices/gpon",
+   795→            permission: "device.gpon.read",
+   796→          },
+   797→        ],
+   798→      },
+   799→    ],
+   800→  },
+   801→
+   802→  // -------------------------------------------------------------------
+   803→  // COMMUNICATION
+   804→  // -------------------------------------------------------------------
+   805→  {
+   806→    id: "communication",
+   807→    name: "Communication",
+   808→    description:
+   809→      "Email, SMS, WhatsApp, push notifications, templates, notification rules. Every channel is an optional adapter.",
+   810→    version: "1.0.0",
+   811→    category: "communication",
+   812→    dependencies: ["core"],
+   813→    permissions: [
+   814→      "comm.template.read",
+   815→      "comm.template.write",
+   816→      "comm.rule.read",
+   817→      "comm.rule.write",
+   818→      "comm.send",
+   819→    ],
+   820→    resources: ["full-stack", "external-connection", "with-worker"],
+   821→    hasWorker: true,
+   822→    requiresExternalConnection: true,
+   823→    defaultEnabled: true,
+   824→    coreModule: false,
+   825→    licenseTier: "standard",
+   826→    navigation: [
+   827→      {
+   828→        id: "communication",
+   829→        label: "Communication",
+   830→        icon: "MessageSquare",
+   831→        permission: "comm.template.read",
+   832→        children: [
+   833→          {
+   834→            id: "templates",
+   835→            label: "Templates",
+   836→            icon: "FileText",
+   837→            href: "/communication/templates",
+   838→            permission: "comm.template.read",
+   839→          },
+   840→          {
+   841→            id: "rules",
+   842→            label: "Notification Rules",
+   843→            icon: "Bell",
+   844→            href: "/communication/rules",
+   845→            permission: "comm.rule.read",
+   846→          },
+   847→        ],
+   848→      },
+   849→    ],
+   850→  },
+   851→
+   852→  // -------------------------------------------------------------------
+   853→  // AI
+   854→  // -------------------------------------------------------------------
+   855→  {
+   856→    id: "ai",
+   857→    name: "AI Intelligence",
+   858→    description:
+   859→      "AI Advisor, AI Diagnosis, churn prediction, churn alerts, competitor intelligence, operational recommendations. Optional — never blocks core OSS/BSS.",
+   860→    version: "1.0.0",
+   861→    category: "ai",
+   862→    dependencies: ["core", "monitoring", "subscribers"],
+   863→    permissions: [
+   864→      "ai.advisor.use",
+   865→      "ai.diagnosis.use",
+   866→      "ai.churn.read",
+   867→      "ai.competitor.read",
+   868→    ],
+   869→    resources: ["full-stack", "with-worker", "external-connection"],
+   870→    hasWorker: true,
+   871→    requiresExternalConnection: true,
+   872→    defaultEnabled: true,
+   873→    coreModule: false,
+   874→    licenseTier: "enterprise",
+   875→    navigation: [
+   876→      {
+   877→        id: "ai",
+   878→        label: "AI Intelligence",
+   879→        icon: "Sparkles",
+   880→        permission: "ai.advisor.use",
+   881→        children: [
+   882→          {
+   883→            id: "advisor",
+   884→            label: "AI Advisor",
+   885→            icon: "Bot",
+   886→            href: "/ai/advisor",
+   887→            permission: "ai.advisor.use",
+   888→          },
+   889→          {
+   890→            id: "diagnosis",
+   891→            label: "AI Diagnosis",
+   892→            icon: "Stethoscope",
+   893→            href: "/ai/diagnosis",
+   894→            permission: "ai.diagnosis.use",
+   895→          },
+   896→          {
+   897→            id: "churn",
+   898→            label: "Churn Prediction",
+   899→            icon: "TrendingDown",
+   900→            href: "/ai/churn",
+   901→            permission: "ai.churn.read",
+   902→          },
+   903→        ],
+   904→      },
+   905→    ],
+   906→  },
+   907→];
+   908→
+   909→/** Lookup map for O(1) access by id */
+   910→export const MODULE_MAP: Record<string, CryptskModule> = Object.fromEntries(
+   911→  MODULE_CATALOG.map((m) => [m.id, m])
+   912→);
+   913→
+   914→/** All permissions declared across all modules (for seeding) */
+   915→export const ALL_PERMISSIONS: string[] = Array.from(
+   916→  new Set(MODULE_CATALOG.flatMap((m) => m.permissions))
+   917→);
+   918→

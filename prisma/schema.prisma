@@ -72,6 +72,28 @@ model Tenant {
   communicationLogs CommunicationLog[]
   churnPredictions ChurnPrediction[]
   aiConversations AiConversation[]
+  areas Area[]
+  captivePortals CaptivePortal[]
+  captivePortalSessions CaptivePortalSession[]
+  radiusProxyRealms RadiusProxyRealm[]
+  radiusProxyServers RadiusProxyServer[]
+  radiusAttributeDefs RadiusAttributeDef[]
+  coaEvents CoaEvent[]
+  leads Lead[]
+  promotions Promotion[]
+  referrals Referral[]
+  loyaltyMembers LoyaltyMember[]
+  resellers Reseller[]
+  collectionAgents CollectionAgent[]
+  apiKeys ApiKey[]
+  backups Backup[]
+  announcements Announcement[]
+  actionHistories ActionHistory[]
+  gracePeriods GracePeriod[]
+  addOnServices AddOnService[]
+  topUps TopUp[]
+  chargeOverrides ChargeOverride[]
+  creditNotes CreditNote[]
 }
 
 // =====================================================================
@@ -899,6 +921,416 @@ model AiConversation {
 
   @@index([tenantId, userId])
   @@index([tenantId, type])
+}
+
+// =====================================================================
+// PHASE 10 — Additional Features (Areas, Captive Portal, RADIUS Proxy, CoA, Leads, Promotions, etc.)
+// =====================================================================
+
+model Area {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  pincode     String?
+  city        String?
+  state       String?
+  latitude    Float?
+  longitude   Float?
+  status      String   @default("active")
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+}
+
+model CaptivePortal {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  enabled         Boolean  @default(true)
+  loginMethod     String   @default("radius") // radius | voucher | click_to_continue | mac_auth | social
+  sessionTimeout  Int      @default(86400) // seconds
+  bandwidthLimit  Int?     // kbps, null = unlimited
+  redirectUrl     String?
+  welcomeMessage  String?
+  termsOfService  String?
+  allowedHosts    String?  // JSON array
+  template        String   @default("isp_default") // hotel | cafe | airport | resort | corporate | isp_default | custom
+  logoUrl         String?
+  customCss       String?
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+  sessions CaptivePortalSession[]
+}
+
+model CaptivePortalSession {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  portalId      String?
+  portal        CaptivePortal? @relation(fields: [portalId], references: [id], onDelete: SetNull)
+  macAddress    String
+  ipAddress     String
+  username      String?
+  sessionId     String?
+  authMethod    String    @default("click_to_continue")
+  status        String    @default("active") // active | expired | disconnected | data_cap_reached | admin_disconnect
+  startTime     DateTime  @default(now())
+  endTime      DateTime?
+  dataUsed      BigInt    @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId, status])
+  @@index([macAddress])
+  @@index([startTime])
+}
+
+model RadiusProxyRealm {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  realm       String   @unique
+  type        String   @default("auth") // auth | acct | both
+  serverId    String
+  stripRealm  Boolean  @default(false)
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model RadiusProxyServer {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  ipAddress     String
+  authPort      Int      @default(1812)
+  acctPort      Int      @default(1813)
+  secret        String
+  type          String   @default("both") // auth | acct | both
+  timeout       Int      @default(5)
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+}
+
+model RadiusAttributeDef {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String   @unique
+  type        String   @default("string") // string | integer | ipaddr | octets
+  vendor      String?
+  attrType    String   @default("both") // check | reply | both
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model CoaEvent {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type          String   @default("session_disconnect") // plan_change | bandwidth_change | session_disconnect | session_timeout | fap_trigger | topup_apply
+  status        String   @default("requested") // requested | success | failed | timeout
+  subscriberId  String?
+  sessionId     String?
+  nasIpAddress  String?
+  coaPort       Int      @default(3799)
+  attributes    String?  // JSON of CoA attributes sent
+  response      String?  // JSON of NAS response
+  errorMessage  String?
+  requestedBy   String?
+  requestedAt   DateTime @default(now())
+  processedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([subscriberId])
+  @@index([requestedAt])
+}
+
+model Lead {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  email         String?
+  phone         String?
+  address       String?
+  areaId        String?
+  source        String   @default("website") // website | whatsapp | referral | walk_in | call | social_media | other
+  status        String   @default("new") // new | contacted | interested | qualified | converted | lost
+  interestedPlanId String?
+  estimatedValue Float?
+  notes         String?
+  followUpDate  DateTime?
+  convertedSubscriberId String?
+  assignedTo    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([source])
+}
+
+model Promotion {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  code          String   @unique
+  description   String?
+  type          String   @default("percentage") // percentage | flat | free_trial
+  value         Float    @default(0)
+  maxUses       Int?
+  usedCount     Int      @default(0)
+  validFrom     DateTime
+  validUntil    DateTime
+  status        String   @default("active") // active | expired | depleted
+  applicablePlans String? // JSON array of plan IDs, null = all
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([code])
+}
+
+model Referral {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  referrerId      String?  // subscriber who refers
+  refereeId       String?  // subscriber who was referred
+  code            String   @unique
+  rewardType      String   @default("credit") // credit | discount | free_month
+  rewardValue     Float    @default(0)
+  status          String   @default("pending") // pending | completed | expired
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([referrerId])
+}
+
+model LoyaltyMember {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriberId  String   @unique
+  tier          String   @default("bronze") // bronze | silver | gold | platinum
+  points        Int      @default(0)
+  totalEarned   Int      @default(0)
+  totalRedeemed Int      @default(0)
+  joinedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, tier])
+}
+
+model Reseller {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  code          String   @unique
+  email         String?
+  phone         String?
+  address       String?
+  contactPerson String?
+  status        String   @default("active") // active | suspended | trial
+  commissionMethod String @default("percentage") // percentage | flat | slab
+  commissionRate Float   @default(10)
+  creditLimit   Float    @default(0)
+  balance       Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model CollectionAgent {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String?  @unique
+  name          String
+  phone         String?
+  email         String?
+  employeeId    String?
+  status        String   @default("active")
+  dailyTarget   Float    @default(0)
+  monthlyTarget Float    @default(0)
+  commissionRate Float   @default(5)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model ApiKey {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  key           String   @unique
+  permissions   String?  // JSON array of permission keys
+  lastUsedAt    DateTime?
+  expiresAt     DateTime?
+  status        String   @default("active") // active | revoked
+  createdBy      String?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, status])
+}
+
+model Backup {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type          String   @default("database") // database | config | full
+  status        String   @default("pending") // pending | completed | failed
+  size          Int?     // bytes
+  path          String?
+  checksum      String?
+  encrypted     Boolean  @default(false)
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  @@index([tenantId, status])
+  @@index([createdAt])
+}
+
+model Announcement {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title         String
+  message       String
+  level         String   @default("info") // info | success | warning | error
+  audience      String   @default("all") // all | admins | technicians | agents
+  dismissible   Boolean  @default(true)
+  activeFrom    DateTime @default(now())
+  activeUntil   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, activeFrom])
+}
+
+model ActionHistory {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriberId  String?
+  action        String   // plan_change | plan_assign | renewal | suspend | activate | plan_upgrade | plan_downgrade | fap_trigger | topup_apply | reversal | price_override | grace_apply | note_add
+  performedBy   String?
+  oldValue      String?  // JSON
+  newValue      String?  // JSON
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, subscriberId])
+  @@index([action, createdAt])
+}
+
+model GracePeriod {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriberId  String
+  type          String   @default("post_billing") // pre_billing | post_billing
+  status        String   @default("active") // active | suspended | cancelled | expired
+  startDate     DateTime @default(now())
+  endDate       DateTime
+  days          Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([subscriberId])
+}
+
+model AddOnService {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  chargeType    String   @default("flat") // flat | per_day | per_gb | per_month
+  price         Float
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, name])
+}
+
+model TopUp {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriberId  String
+  type          String   @default("data") // data | time | speed_boost
+  amount        Float    // GB for data, hours for time, kbps for speed
+  price         Float
+  status        String   @default("active") // active | used | expired | cancelled
+  expiresAt     DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([subscriberId])
+}
+
+model ChargeOverride {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriberId  String
+  type          String   @default("discount") // discount | surcharge
+  value         Float    // percentage or flat amount
+  valueType     String   @default("percentage") // percentage | flat
+  reason        String?
+  status        String   @default("active") // active | expired | cancelled
+  startDate     DateTime @default(now())
+  endDate       DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([subscriberId])
+}
+
+model CreditNote {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId     String
+  number        String   @unique
+  amount        Float
+  reason        String?
+  status        String   @default("issued") // issued | applied | cancelled
+  issuedBy      String?
+  issuedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([invoiceId])
 }
 
 // =====================================================================

@@ -1,0 +1,800 @@
+     1→// =====================================================================
+     2→// PROMOTIONS CLIENT — discount codes / coupons management
+     3→// =====================================================================
+     4→
+     5→"use client";
+     6→
+     7→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     8→import { useState, useMemo, useCallback } from "react";
+     9→import type { ColumnDef } from "@tanstack/react-table";
+    10→import { PageHeader } from "@/components/common/page-header";
+    11→import { StatusBadge } from "@/components/common/status-badge";
+    12→import { DataTable } from "@/components/common/data-table";
+    13→import { Button } from "@/components/ui/button";
+    14→import { Card } from "@/components/ui/card";
+    15→import { Progress } from "@/components/ui/progress";
+    16→import {
+    17→  Dialog,
+    18→  DialogContent,
+    19→  DialogDescription,
+    20→  DialogFooter,
+    21→  DialogHeader,
+    22→  DialogTitle,
+    23→} from "@/components/ui/dialog";
+    24→import {
+    25→  AlertDialog,
+    26→  AlertDialogAction,
+    27→  AlertDialogCancel,
+    28→  AlertDialogContent,
+    29→  AlertDialogDescription,
+    30→  AlertDialogFooter,
+    31→  AlertDialogHeader,
+    32→  AlertDialogTitle,
+    33→} from "@/components/ui/alert-dialog";
+    34→import { Input } from "@/components/ui/input";
+    35→import { Label } from "@/components/ui/label";
+    36→import { Textarea } from "@/components/ui/textarea";
+    37→import {
+    38→  Select,
+    39→  SelectContent,
+    40→  SelectItem,
+    41→  SelectTrigger,
+    42→  SelectValue,
+    43→} from "@/components/ui/select";
+    44→import { toast } from "sonner";
+    45→import { format } from "date-fns";
+    46→import {
+    47→  Tag,
+    48→  Plus,
+    49→  Edit,
+    50→  Trash2,
+    51→  Copy,
+    52→  Ticket,
+    53→  CheckCircle2,
+    54→  CalendarClock,
+    55→  Percent,
+    56→  DollarSign,
+    57→} from "lucide-react";
+    58→import { cn } from "@/lib/utils";
+    59→
+    60→interface PromotionItem {
+    61→  id: string;
+    62→  name: string;
+    63→  code: string;
+    64→  description: string | null;
+    65→  type: string; // percentage | flat | free_trial
+    66→  value: number;
+    67→  maxUses: number | null;
+    68→  usedCount: number;
+    69→  validFrom: string;
+    70→  validUntil: string;
+    71→  status: string;
+    72→  applicablePlans: string | null;
+    73→  isExpired: boolean;
+    74→  createdAt: string;
+    75→  updatedAt: string;
+    76→}
+    77→
+    78→interface PromotionFormValues {
+    79→  name: string;
+    80→  code: string;
+    81→  description?: string;
+    82→  type: "percentage" | "flat" | "free_trial";
+    83→  value: number;
+    84→  maxUses?: number | null;
+    85→  validFrom: string;
+    86→  validUntil: string;
+    87→  status: "active" | "expired" | "depleted";
+    88→  applicablePlans?: string;
+    89→}
+    90→
+    91→const TYPES = [
+    92→  { value: "percentage", label: "Percentage" },
+    93→  { value: "flat", label: "Flat Amount" },
+    94→  { value: "free_trial", label: "Free Trial" },
+    95→];
+    96→
+    97→const TYPE_COLORS: Record<string, string> = {
+    98→  percentage: "bg-brand/10 text-brand",
+    99→  flat: "bg-success/10 text-success",
+   100→  free_trial: "bg-info/10 text-info",
+   101→};
+   102→
+   103→const TYPE_LABELS: Record<string, string> = {
+   104→  percentage: "Percentage",
+   105→  flat: "Flat",
+   106→  free_trial: "Free Trial",
+   107→};
+   108→
+   109→const formatCurrency = (n: number) =>
+   110→  new Intl.NumberFormat("en-US", {
+   111→    style: "currency",
+   112→    currency: "USD",
+   113→    maximumFractionDigits: 2,
+   114→  }).format(n);
+   115→
+   116→async function fetchPromotions(params: {
+   117→  page: number;
+   118→  pageSize: number;
+   119→  search: string;
+   120→  status: string;
+   121→  type: string;
+   122→}): Promise<{ data: PromotionItem[]; total: number }> {
+   123→  const url = new URL("/api/v1/promotions", window.location.origin);
+   124→  url.searchParams.set("page", String(params.page));
+   125→  url.searchParams.set("pageSize", String(params.pageSize));
+   126→  if (params.search) url.searchParams.set("search", params.search);
+   127→  if (params.status && params.status !== "all") url.searchParams.set("status", params.status);
+   128→  if (params.type && params.type !== "all") url.searchParams.set("type", params.type);
+   129→  const res = await fetch(url, { cache: "no-store" });
+   130→  if (!res.ok) throw new Error("Failed to fetch promotions");
+   131→  const json = await res.json();
+   132→  return { data: json.data, total: json.meta.total };
+   133→}
+   134→
+   135→async function savePromotion(
+   136→  values: PromotionFormValues & { id?: string }
+   137→): Promise<void> {
+   138→  const isEdit = !!values.id;
+   139→  const res = await fetch(
+   140→    isEdit ? `/api/v1/promotions/${values.id}` : "/api/v1/promotions",
+   141→    {
+   142→      method: isEdit ? "PATCH" : "POST",
+   143→      headers: { "Content-Type": "application/json" },
+   144→      body: JSON.stringify(values),
+   145→    }
+   146→  );
+   147→  if (!res.ok) {
+   148→    const err = await res.json().catch(() => ({}));
+   149→    throw new Error(err?.error?.message ?? "Failed to save promotion");
+   150→  }
+   151→}
+   152→
+   153→async function deletePromotion(id: string): Promise<void> {
+   154→  const res = await fetch(`/api/v1/promotions/${id}`, { method: "DELETE" });
+   155→  if (!res.ok) {
+   156→    const err = await res.json().catch(() => ({}));
+   157→    throw new Error(err?.error?.message ?? "Failed to delete promotion");
+   158→  }
+   159→}
+   160→
+   161→export function PromotionsClient() {
+   162→  const queryClient = useQueryClient();
+   163→  const [page, setPage] = useState(1);
+   164→  const [pageSize, setPageSize] = useState(25);
+   165→  const [search, setSearch] = useState("");
+   166→  const [statusFilter, setStatusFilter] = useState("all");
+   167→  const [typeFilter, setTypeFilter] = useState("all");
+   168→  const [createOpen, setCreateOpen] = useState(false);
+   169→  const [editTarget, setEditTarget] = useState<PromotionItem | null>(null);
+   170→  const [deleteTarget, setDeleteTarget] = useState<PromotionItem | null>(null);
+   171→
+   172→  const { data, isLoading, isError, error, refetch } = useQuery({
+   173→    queryKey: ["promotions", { page, pageSize, search, statusFilter, typeFilter }],
+   174→    queryFn: () =>
+   175→      fetchPromotions({
+   176→        page,
+   177→        pageSize,
+   178→        search,
+   179→        status: statusFilter,
+   180→        type: typeFilter,
+   181→      }),
+   182→    placeholderData: (prev) => prev,
+   183→  });
+   184→
+   185→  const saveMutation = useMutation({
+   186→    mutationFn: (values: PromotionFormValues & { id?: string }) =>
+   187→      savePromotion(values),
+   188→    onSuccess: () => {
+   189→      queryClient.invalidateQueries({ queryKey: ["promotions"] });
+   190→      toast.success("Promotion saved");
+   191→      setCreateOpen(false);
+   192→      setEditTarget(null);
+   193→    },
+   194→    onError: (e: Error) => toast.error("Save failed", { description: e.message }),
+   195→  });
+   196→
+   197→  const deleteMutation = useMutation({
+   198→    mutationFn: (id: string) => deletePromotion(id),
+   199→    onSuccess: () => {
+   200→      queryClient.invalidateQueries({ queryKey: ["promotions"] });
+   201→      toast.success("Promotion deleted");
+   202→      setDeleteTarget(null);
+   203→    },
+   204→    onError: (e: Error) => toast.error("Delete failed", { description: e.message }),
+   205→  });
+   206→
+   207→  const handleSearchChange = useCallback((v: string) => {
+   208→    setSearch(v);
+   209→    setPage(1);
+   210→  }, []);
+   211→
+   212→  const handleCopyCode = (code: string) => {
+   213→    navigator.clipboard.writeText(code);
+   214→    toast.success("Code copied", { description: code });
+   215→  };
+   216→
+   217→  const columns = useMemo<ColumnDef<PromotionItem>[]>(
+   218→    () => [
+   219→      {
+   220→        id: "name",
+   221→        header: "Promotion",
+   222→        cell: ({ row }) => (
+   223→          <div className="max-w-xs">
+   224→            <p className="text-sm font-medium truncate">{row.original.name}</p>
+   225→            {row.original.description && (
+   226→              <p className="text-xs text-muted-foreground truncate pl-0">
+   227→                {row.original.description}
+   228→              </p>
+   229→            )}
+   230→          </div>
+   231→        ),
+   232→      },
+   233→      {
+   234→        id: "code",
+   235→        header: "Code",
+   236→        cell: ({ row }) => (
+   237→          <button
+   238→            onClick={() => handleCopyCode(row.original.code)}
+   239→            className="font-mono text-xs text-brand hover:underline flex items-center gap-1"
+   240→            title="Click to copy"
+   241→          >
+   242→            {row.original.code}
+   243→            <Copy className="h-3 w-3 opacity-50" />
+   244→          </button>
+   245→        ),
+   246→      },
+   247→      {
+   248→        id: "type",
+   249→        header: "Type",
+   250→        cell: ({ row }) => (
+   251→          <span
+   252→            className={cn(
+   253→              "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium",
+   254→              TYPE_COLORS[row.original.type] ?? "bg-muted text-muted-foreground"
+   255→            )}
+   256→          >
+   257→            {TYPE_LABELS[row.original.type] ?? row.original.type}
+   258→          </span>
+   259→        ),
+   260→      },
+   261→      {
+   262→        id: "value",
+   263→        header: "Value",
+   264→        cell: ({ row }) => {
+   265→          const v = row.original.value;
+   266→          if (row.original.type === "percentage") {
+   267→            return (
+   268→              <span className="text-sm tabular-nums font-medium flex items-center gap-1">
+   269→                {v}%
+   270→                <Percent className="h-3 w-3 text-muted-foreground" />
+   271→              </span>
+   272→            );
+   273→          }
+   274→          if (row.original.type === "flat") {
+   275→            return (
+   276→              <span className="text-sm tabular-nums font-medium">
+   277→                {formatCurrency(v)}
+   278→              </span>
+   279→            );
+   280→          }
+   281→          return (
+   282→            <span className="text-xs text-muted-foreground">
+   283→              {v} day{v === 1 ? "" : "s"} free
+   284→            </span>
+   285→          );
+   286→        },
+   287→      },
+   288→      {
+   289→        id: "usage",
+   290→        header: "Usage",
+   291→        cell: ({ row }) => {
+   292→          const used = row.original.usedCount;
+   293→          const max = row.original.maxUses;
+   294→          if (!max) {
+   295→            return (
+   296→              <span className="text-xs text-muted-foreground tabular-nums">
+   297→                {used} used · unlimited
+   298→              </span>
+   299→            );
+   300→          }
+   301→          const pct = Math.min(100, Math.round((used / max) * 100));
+   302→          return (
+   303→            <div className="flex flex-col gap-1 min-w-28">
+   304→              <span className="text-xs tabular-nums">
+   305→                {used} / {max}
+   306→              </span>
+   307→              <Progress value={pct} className="h-1.5" />
+   308→            </div>
+   309→          );
+   310→        },
+   311→      },
+   312→      {
+   313→        id: "validPeriod",
+   314→        header: "Valid Period",
+   315→        cell: ({ row }) => (
+   316→          <div className="flex flex-col text-xs">
+   317→            <span>
+   318→              {format(new Date(row.original.validFrom), "MMM d")} →{" "}
+   319→              {format(new Date(row.original.validUntil), "MMM d, yyyy")}
+   320→            </span>
+   321→            <span
+   322→              className={cn(
+   323→                "text-[10px]",
+   324→                row.original.isExpired ? "text-destructive" : "text-muted-foreground"
+   325→              )}
+   326→            >
+   327→              {row.original.isExpired ? "Expired" : "Active window"}
+   328→            </span>
+   329→          </div>
+   330→        ),
+   331→      },
+   332→      {
+   333→        accessorKey: "status",
+   334→        header: "Status",
+   335→        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+   336→      },
+   337→      {
+   338→        id: "actions",
+   339→        header: "",
+   340→        cell: ({ row }) => (
+   341→          <div className="flex items-center justify-end gap-1">
+   342→            <Button
+   343→              variant="ghost"
+   344→              size="icon"
+   345→              className="h-8 w-8"
+   346→              onClick={() => setEditTarget(row.original)}
+   347→              aria-label="Edit promotion"
+   348→            >
+   349→              <Edit className="h-3.5 w-3.5" />
+   350→            </Button>
+   351→            <Button
+   352→              variant="ghost"
+   353→              size="icon"
+   354→              className="h-8 w-8 hover:text-destructive"
+   355→              onClick={() => setDeleteTarget(row.original)}
+   356→              aria-label="Delete promotion"
+   357→            >
+   358→              <Trash2 className="h-3.5 w-3.5" />
+   359→            </Button>
+   360→          </div>
+   361→        ),
+   362→      },
+   363→    ],
+   364→    []
+   365→  );
+   366→
+   367→  const promotions = data?.data ?? [];
+   368→  const totalAll = data?.total ?? 0;
+   369→  const activeCount = promotions.filter((p) => p.status === "active" && !p.isExpired).length;
+   370→  const expiredCount = promotions.filter((p) => p.isExpired || p.status === "expired").length;
+   371→  const totalUsed = promotions.reduce((sum, p) => sum + p.usedCount, 0);
+   372→
+   373→  return (
+   374→    <>
+   375→      <PageHeader
+   376→        title="Promotions"
+   377→        description="Manage discount codes, percentage-off coupons, and free trial offers applicable to plans."
+   378→        actions={
+   379→          <Button size="sm" onClick={() => setCreateOpen(true)}>
+   380→            <Plus className="mr-2 h-3.5 w-3.5" /> New Promotion
+   381→          </Button>
+   382→        }
+   383→      />
+   384→
+   385→      {/* Stats */}
+   386→      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-5">
+   387→        <Card className="p-4">
+   388→          <div className="flex items-center gap-3">
+   389→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand/10 text-brand">
+   390→              <Tag className="h-4 w-4" />
+   391→            </div>
+   392→            <div>
+   393→              <p className="text-xl font-semibold tabular-nums">{totalAll}</p>
+   394→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   395→                Total Promotions
+   396→              </p>
+   397→            </div>
+   398→          </div>
+   399→        </Card>
+   400→        <Card className="p-4">
+   401→          <div className="flex items-center gap-3">
+   402→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-success/10 text-success">
+   403→              <CheckCircle2 className="h-4 w-4" />
+   404→            </div>
+   405→            <div>
+   406→              <p className="text-xl font-semibold tabular-nums">{activeCount}</p>
+   407→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   408→                Active Now
+   409→              </p>
+   410→            </div>
+   411→          </div>
+   412→        </Card>
+   413→        <Card className="p-4">
+   414→          <div className="flex items-center gap-3">
+   415→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-warning/10 text-warning">
+   416→              <CalendarClock className="h-4 w-4" />
+   417→            </div>
+   418→            <div>
+   419→              <p className="text-xl font-semibold tabular-nums">{expiredCount}</p>
+   420→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   421→                Expired
+   422→              </p>
+   423→            </div>
+   424→          </div>
+   425→        </Card>
+   426→        <Card className="p-4">
+   427→          <div className="flex items-center gap-3">
+   428→            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-info/10 text-info">
+   429→              <Ticket className="h-4 w-4" />
+   430→            </div>
+   431→            <div>
+   432→              <p className="text-xl font-semibold tabular-nums">{totalUsed}</p>
+   433→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   434→                Times Used
+   435→              </p>
+   436→            </div>
+   437→          </div>
+   438→        </Card>
+   439→      </div>
+   440→
+   441→      {/* Filters */}
+   442→      <div className="flex flex-col gap-3 sm:flex-row sm:items-center mb-4">
+   443→        <Select
+   444→          value={statusFilter}
+   445→          onValueChange={(v) => {
+   446→            setStatusFilter(v);
+   447→            setPage(1);
+   448→          }}
+   449→        >
+   450→          <SelectTrigger className="h-9 w-full sm:w-44">
+   451→            <SelectValue placeholder="Status" />
+   452→          </SelectTrigger>
+   453→          <SelectContent>
+   454→            <SelectItem value="all">All status</SelectItem>
+   455→            <SelectItem value="active">Active</SelectItem>
+   456→            <SelectItem value="expired">Expired</SelectItem>
+   457→            <SelectItem value="depleted">Depleted</SelectItem>
+   458→          </SelectContent>
+   459→        </Select>
+   460→        <Select
+   461→          value={typeFilter}
+   462→          onValueChange={(v) => {
+   463→            setTypeFilter(v);
+   464→            setPage(1);
+   465→          }}
+   466→        >
+   467→          <SelectTrigger className="h-9 w-full sm:w-44">
+   468→            <SelectValue placeholder="Type" />
+   469→          </SelectTrigger>
+   470→          <SelectContent>
+   471→            <SelectItem value="all">All types</SelectItem>
+   472→            {TYPES.map((t) => (
+   473→              <SelectItem key={t.value} value={t.value}>
+   474→                {t.label}
+   475→              </SelectItem>
+   476→            ))}
+   477→          </SelectContent>
+   478→        </Select>
+   479→      </div>
+   480→
+   481→      <DataTable
+   482→        columns={columns}
+   483→        data={promotions}
+   484→        isLoading={isLoading}
+   485→        isError={isError}
+   486→        error={error?.message}
+   487→        onRetry={() => refetch()}
+   488→        pagination={{ page, pageSize, total: data?.total ?? 0 }}
+   489→        onPaginationChange={(p, ps) => {
+   490→          setPage(p);
+   491→          setPageSize(ps);
+   492→        }}
+   493→        search={search}
+   494→        onSearchChange={handleSearchChange}
+   495→        searchPlaceholder="Search by name, code, description…"
+   496→        emptyMessage="No promotions"
+   497→        emptyDescription="Create a promotion to offer discounts and free trials."
+   498→      />
+   499→
+   500→      {/* Create dialog */}
+   501→      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   502→        <DialogContent className="sm:max-w-lg">
+   503→          <DialogHeader>
+   504→            <DialogTitle className="flex items-center gap-2">
+   505→              <Tag className="h-5 w-5 text-brand" /> New Promotion
+   506→            </DialogTitle>
+   507→            <DialogDescription>
+   508→              Discount codes apply at checkout. Codes are auto-uppercased.
+   509→            </DialogDescription>
+   510→          </DialogHeader>
+   511→          <PromotionForm
+   512→            isSaving={saveMutation.isPending}
+   513→            onSave={(values) => saveMutation.mutate(values)}
+   514→          />
+   515→        </DialogContent>
+   516→      </Dialog>
+   517→
+   518→      {/* Edit dialog */}
+   519→      <Dialog
+   520→        open={!!editTarget}
+   521→        onOpenChange={(o) => {
+   522→          if (!o) setEditTarget(null);
+   523→        }}
+   524→      >
+   525→        <DialogContent className="sm:max-w-lg">
+   526→          <DialogHeader>
+   527→            <DialogTitle className="flex items-center gap-2">
+   528→              <Edit className="h-5 w-5 text-brand" /> Edit Promotion
+   529→            </DialogTitle>
+   530→            <DialogDescription>
+   531→              Update <span className="font-medium text-foreground">{editTarget?.name}</span> (
+   532→              <code className="font-mono text-xs">{editTarget?.code}</code>)
+   533→            </DialogDescription>
+   534→          </DialogHeader>
+   535→          {editTarget && (
+   536→            <PromotionForm
+   537→              key={editTarget.id}
+   538→              initial={editTarget}
+   539→              isSaving={saveMutation.isPending}
+   540→              onSave={(values) =>
+   541→                saveMutation.mutate({ ...values, id: editTarget.id })
+   542→              }
+   543→            />
+   544→          )}
+   545→        </DialogContent>
+   546→      </Dialog>
+   547→
+   548→      {/* Delete confirm */}
+   549→      <AlertDialog
+   550→        open={!!deleteTarget}
+   551→        onOpenChange={(o) => {
+   552→          if (!o) setDeleteTarget(null);
+   553→        }}
+   554→      >
+   555→        <AlertDialogContent>
+   556→          <AlertDialogHeader>
+   557→            <AlertDialogTitle>Delete promotion?</AlertDialogTitle>
+   558→            <AlertDialogDescription>
+   559→              This will permanently delete <strong>{deleteTarget?.name}</strong> (
+   560→              <code className="font-mono">{deleteTarget?.code}</code>). This action cannot be undone.
+   561→            </AlertDialogDescription>
+   562→          </AlertDialogHeader>
+   563→          <AlertDialogFooter>
+   564→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   565→            <AlertDialogAction
+   566→              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   567→              disabled={deleteMutation.isPending}
+   568→              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+   569→            >
+   570→              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+   571→            </AlertDialogAction>
+   572→          </AlertDialogFooter>
+   573→        </AlertDialogContent>
+   574→      </AlertDialog>
+   575→    </>
+   576→  );
+   577→}
+   578→
+   579→// ---------------------------------------------------------------------
+   580→// FORM — used for both create and edit
+   581→// ---------------------------------------------------------------------
+   582→
+   583→function PromotionForm({
+   584→  initial,
+   585→  isSaving,
+   586→  onSave,
+   587→}: {
+   588→  initial?: PromotionItem;
+   589→  isSaving: boolean;
+   590→  onSave: (values: PromotionFormValues) => void;
+   591→}) {
+   592→  const toLocalInput = (date: string | Date) => {
+   593→    const d = typeof date === "string" ? new Date(date) : date;
+   594→    return d.toISOString().slice(0, 16);
+   595→  };
+   596→
+   597→  const [form, setForm] = useState<{
+   598→    name: string;
+   599→    code: string;
+   600→    description: string;
+   601→    type: PromotionFormValues["type"];
+   602→    value: string;
+   603→    maxUses: string;
+   604→    validFrom: string;
+   605→    validUntil: string;
+   606→    status: PromotionFormValues["status"];
+   607→    applicablePlans: string;
+   608→  }>({
+   609→    name: initial?.name ?? "",
+   610→    code: initial?.code ?? "",
+   611→    description: initial?.description ?? "",
+   612→    type: (initial?.type as PromotionFormValues["type"]) ?? "percentage",
+   613→    value: initial?.value?.toString() ?? "10",
+   614→    maxUses: initial?.maxUses?.toString() ?? "",
+   615→    validFrom: initial ? toLocalInput(initial.validFrom) : toLocalInput(new Date()),
+   616→    validUntil: initial
+   617→      ? toLocalInput(initial.validUntil)
+   618→      : toLocalInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+   619→    status: (initial?.status as PromotionFormValues["status"]) ?? "active",
+   620→    applicablePlans: initial?.applicablePlans ?? "",
+   621→  });
+   622→
+   623→  const valueNum = form.value ? parseFloat(form.value) : 0;
+   624→  const maxUsesNum = form.maxUses ? parseInt(form.maxUses, 10) : null;
+   625→
+   626→  return (
+   627→    <form
+   628→      onSubmit={(e) => {
+   629→        e.preventDefault();
+   630→        onSave({
+   631→          name: form.name,
+   632→          code: form.code,
+   633→          description: form.description || undefined,
+   634→          type: form.type,
+   635→          value: valueNum,
+   636→          maxUses: maxUsesNum,
+   637→          validFrom: new Date(form.validFrom).toISOString(),
+   638→          validUntil: new Date(form.validUntil).toISOString(),
+   639→          status: form.status,
+   640→          applicablePlans: form.applicablePlans || undefined,
+   641→        });
+   642→      }}
+   643→      className="space-y-4"
+   644→    >
+   645→      <div className="grid grid-cols-2 gap-3">
+   646→        <div className="space-y-2">
+   647→          <Label htmlFor="p-name">Name *</Label>
+   648→          <Input
+   649→            id="p-name"
+   650→            value={form.name}
+   651→            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+   652→            placeholder="Summer Sale"
+   653→            required
+   654→          />
+   655→        </div>
+   656→        <div className="space-y-2">
+   657→          <Label htmlFor="p-code">Code *</Label>
+   658→          <Input
+   659→            id="p-code"
+   660→            value={form.code}
+   661→            onChange={(e) =>
+   662→              setForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))
+   663→            }
+   664→            placeholder="SUMMER25"
+   665→            className="font-mono"
+   666→            required
+   667→          />
+   668→        </div>
+   669→      </div>
+   670→      <div className="space-y-2">
+   671→        <Label htmlFor="p-desc">Description</Label>
+   672→        <Textarea
+   673→          id="p-desc"
+   674→          value={form.description}
+   675→          onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+   676→          placeholder="25% off for new subscribers…"
+   677→          rows={2}
+   678→        />
+   679→      </div>
+   680→      <div className="grid grid-cols-2 gap-3">
+   681→        <div className="space-y-2">
+   682→          <Label>Type</Label>
+   683→          <Select
+   684→            value={form.type}
+   685→            onValueChange={(v: PromotionFormValues["type"]) =>
+   686→              setForm((p) => ({ ...p, type: v }))
+   687→            }
+   688→          >
+   689→            <SelectTrigger>
+   690→              <SelectValue />
+   691→            </SelectTrigger>
+   692→            <SelectContent>
+   693→              {TYPES.map((t) => (
+   694→                <SelectItem key={t.value} value={t.value}>
+   695→                  {t.label}
+   696→                </SelectItem>
+   697→              ))}
+   698→            </SelectContent>
+   699→          </Select>
+   700→        </div>
+   701→        <div className="space-y-2">
+   702→          <Label htmlFor="p-value">
+   703→            {form.type === "percentage"
+   704→              ? "Discount (%)"
+   705→              : form.type === "flat"
+   706→              ? "Amount (USD)"
+   707→              : "Trial Days"}
+   708→          </Label>
+   709→          <div className="relative">
+   710→            <Input
+   711→              id="p-value"
+   712→              type="number"
+   713→              min="0"
+   714→              step="any"
+   715→              value={form.value}
+   716→              onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))}
+   717→              required
+   718→              className={form.type !== "flat" ? "pr-9" : "pl-7"}
+   719→            />
+   720→            {form.type === "flat" && (
+   721→              <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   722→            )}
+   723→            {form.type === "percentage" && (
+   724→              <Percent className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   725→            )}
+   726→          </div>
+   727→        </div>
+   728→      </div>
+   729→      <div className="grid grid-cols-2 gap-3">
+   730→        <div className="space-y-2">
+   731→          <Label htmlFor="p-from">Valid From *</Label>
+   732→          <Input
+   733→            id="p-from"
+   734→            type="datetime-local"
+   735→            value={form.validFrom}
+   736→            onChange={(e) => setForm((p) => ({ ...p, validFrom: e.target.value }))}
+   737→            required
+   738→          />
+   739→        </div>
+   740→        <div className="space-y-2">
+   741→          <Label htmlFor="p-until">Valid Until *</Label>
+   742→          <Input
+   743→            id="p-until"
+   744→            type="datetime-local"
+   745→            value={form.validUntil}
+   746→            onChange={(e) => setForm((p) => ({ ...p, validUntil: e.target.value }))}
+   747→            required
+   748→          />
+   749→        </div>
+   750→      </div>
+   751→      <div className="grid grid-cols-2 gap-3">
+   752→        <div className="space-y-2">
+   753→          <Label htmlFor="p-max">Max Uses (blank = unlimited)</Label>
+   754→          <Input
+   755→            id="p-max"
+   756→            type="number"
+   757→            min="1"
+   758→            value={form.maxUses}
+   759→            onChange={(e) => setForm((p) => ({ ...p, maxUses: e.target.value }))}
+   760→            placeholder="unlimited"
+   761→          />
+   762→        </div>
+   763→        <div className="space-y-2">
+   764→          <Label>Status</Label>
+   765→          <Select
+   766→            value={form.status}
+   767→            onValueChange={(v: PromotionFormValues["status"]) =>
+   768→              setForm((p) => ({ ...p, status: v }))
+   769→            }
+   770→          >
+   771→            <SelectTrigger>
+   772→              <SelectValue />
+   773→            </SelectTrigger>
+   774→            <SelectContent>
+   775→              <SelectItem value="active">Active</SelectItem>
+   776→              <SelectItem value="expired">Expired</SelectItem>
+   777→              <SelectItem value="depleted">Depleted</SelectItem>
+   778→            </SelectContent>
+   779→          </Select>
+   780→        </div>
+   781→      </div>
+   782→      <div className="space-y-2">
+   783→        <Label htmlFor="p-plans">Applicable Plans (comma-separated plan IDs, blank = all)</Label>
+   784→        <Input
+   785→          id="p-plans"
+   786→          value={form.applicablePlans}
+   787→          onChange={(e) => setForm((p) => ({ ...p, applicablePlans: e.target.value }))}
+   788→          placeholder="plan_basic,plan_premium"
+   789→          className="font-mono text-xs"
+   790→        />
+   791→      </div>
+   792→      <DialogFooter>
+   793→        <Button type="submit" disabled={isSaving || !form.name || !form.code}>
+   794→          {isSaving ? "Saving…" : initial ? "Save Changes" : "Create Promotion"}
+   795→        </Button>
+   796→      </DialogFooter>
+   797→    </form>
+   798→  );
+   799→}
+   800→

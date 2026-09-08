@@ -1,0 +1,502 @@
+1045
+---
+  * Page (/operations/complaints): DataTable with ticket#, subject, category, subscriber, priority badge, assignee, status badge, created time. Stat tiles: Total, Open, High Priority, Resolved. Status + priority filters. Create dialog (subject, description, category, priority). Resolve dialog with resolution notes. Close action.
+- Phase 9.2 — Technicians API + page:
+  * API: GET (paginated, search, filter by status), POST (create), GET/PATCH/DELETE [id] (delete blocked if active assignments exist).
+  * Page (/operations/technicians): DataTable with name+icon (color-coded by status), contact (phone/email), active assignments count, status badge, joined time. Create/Edit dialog (name, phone, email, employeeId, status). Delete confirmation.
+- Phase 9.3 — Installations API + page:
+  * API: GET (paginated, search, filter by status/type/technicianId), POST (create with auto WO-YYYY-XXXX), GET/PATCH [id] (PATCH sets completedAt on status=completed, assigns technician, updates notes).
+  * Page (/operations/installations): DataTable with work order #, type badge (color-coded), subscriber, address, technician, scheduled date, status badge. Create dialog (type, subscriber, technician, address, scheduled date, notes). Complete dialog with completion notes. Stat tiles: Total, Active, Completed, Upcoming.
+- Phase 9.4 — Inventory API + page:
+  * API: GET (paginated, search, filter by category/status), POST (create with auto status calculation), GET/PATCH/DELETE [id] (PATCH auto-recalculates status on quantity change). Computes needsReorder + stockValue per item.
+  * Page (/operations/inventory): DataTable with item name+SKU, category badge (color-coded), quantity with reorder warning, unit cost, stock value, location, status badge. Create/Edit dialog (name, SKU, category, unit, quantity, min/reorder points, unit cost, unit price, location). Delete confirmation. Stat tiles: Items, In Stock, Need Reorder, Total Value.
+- Phase 9.5 — Incidents API + page:
+  * API: GET (paginated, search, filter by status/severity/category), POST (create with auto INC-YYYY-XXXX), GET/PATCH/DELETE [id] (PATCH auto-sets acknowledgedAt/resolvedAt/closedAt on status transitions, supports resolution+rootCause fields). Computes duration (time since startedAt or until resolvedAt).
+  * Page (/operations/incidents): DataTable with incident#, title, category, severity badge (color-coded), status badge, duration, started time, assignee. Acknowledge/Resolve/Close actions based on status. Create dialog (title, description, severity, category, affected areas). Resolve dialog with resolution + root cause fields. Stat tiles: Total, Active, Critical, Resolved.
+- Phase 9.6 — Seed data:
+  * Enabled operations module for demo tenant.
+  * 3 technicians (Vikram Singh, Sneha Reddy, Arjun Nair).
+  * 1 installation (WO-2026-0001, scheduled, assigned to Vikram, subscriber CUST-0002).
+  * 4 inventory items (ONT Router, Cat6 Cable [low stock], Fiber Patch Cord [out of stock], MikroTik hAP).
+  * 2 incidents (Building A outage ajor, acknowledged], DNS slow inor, open]).
+
+Stage Summary:
+- Phase 9 (Operations) is COMPLETE and verified end-to-end with agent-browser.
+- All 5 operations pages render with real data:
+  * /operations/complaints — 1 complaint, resolve/close actions work
+  * /operations/technicians — 3 technicians with active assignment counts
+  * /operations/installations — 1 work order with type badge and technician
+  * /operations/inventory — 4 items with stock levels, reorder warnings, total value
+  * /operations/incidents — 2 incidents with severity colors and lifecycle actions
+- Lint: 0 errors. Dev server healthy.
+- Architecture: all APIs use apiRoute wrapper + requireModulePermission + recordAudit, all pages use AuthenticatedLayout + DataTable, events emitted on create/resolve (COMPLAINT_CREATED, COMPLAINT_RESOLVED, INSTALLATION_COMPLETED, ALERT_TRIGGERED, ALERT_ACKNOWLEDGED).
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 5/6/8/10-13 (Policy, Monitoring, Payments, Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 6: Monitoring (real-time bandwidth, traffic analytics, alerts, syslog) — leverages AAA session data
+2. Phase 8: Payments (gateway abstraction, adapters, reconciliation) — builds on billing
+3. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall)
+4. Phase 10: Device Management (TR-069, MikroTik, SNMP)
+
+---
+Task ID: 6-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 6 — Monitoring (Bandwidth, Traffic Analytics, Alerts, Uptime & Latency, Syslog).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 9 operations pages working. Confirmed /monitoring/bandwidth returned 404 (Phase 6 not started).
+- Phase 6.1 — Prisma schema additions (3 new models):
+  * MetricData: metric, value, unit, source, nasId, recordedAt — time-series data for bandwidth/sessions/cpu/memory/latency.
+  * Alert: alertNo, title, description, severity (info/warning/error/critical), status (active/acknowledged/resolved/suppressed), category, source, threshold, currentValue, triggeredAt, acknowledgedAt/By, resolvedAt, resolution.
+  * SyslogEntry: facility, severity (8 levels), priority, message, hostname, sourceIp, nasId, tag, receivedAt.
+  * Added relations to Tenant model. Pushed schema + regenerated Prisma client.
+- Phase 6.2 — Monitoring repository (src/core/repositories/monitoring/index.ts):
+  * recordMetric — insert a single metric data point.
+  * getMetricSeries — time-series query with interval bucketing (5min/1min/60min) and aggregation (avg per interval).
+  * getCurrentMetrics — latest value per metric (distinct).
+  * getTopTalkers — top N subscribers by bandwidth from ActiveSession octets.
+  * getTrafficByNas — aggregate traffic per NAS device from active sessions.
+  * listAlerts — paginated, filtered by status/severity/category/search.
+  * acknowledgeAlert / resolveAlert — lifecycle transitions with timestamps.
+  * listSyslog — paginated, filtered by severity/facility/nasId/search.
+  * getUptimeStats — uptime % and avg latency from metrics + alert count.
+- Phase 6.2 — Monitoring APIs:
+  * GET /api/v1/metrics — supports ?view=dashboard (returns current metrics + series + top talkers + traffic by NAS) or time-series only. Range: 1h/6h/24h/7d/30d. Configurable interval.
+  * GET /api/v1/alerts — paginated alert list with status/severity/category filters.
+  * PATCH /api/v1/alerts/[id] — acknowledge or resolve with resolution notes. Emits ALERT_ACKNOWLEDGED event + audit.
+  * GET /api/v1/syslog — paginated syslog entries with severity/facility/nasId filters.
+- Phase 6.3 — Bandwidth page (/monitoring/bandwidth):
+  * Real-time bandwidth chart (Recharts AreaChart) with 5-minute interval data. Auto-refresh every 10s (toggleable Live/Paused).
+  * Range selectors: 1h, 6h, 24h, 7d, 30d.
+  * KPI cards: Download Mbps, Upload Mbps, Active Sessions (with icons + accent colors).
+  * Traffic by NAS section with progress bars showing bandwidth distribution.
+  * Verified E2E: shows 48.2 Mbps download, range buttons work, chart renders with real metric data.
+- Phase 6.4 — Traffic Analytics page (/monitoring/traffic):
+  * Top Talkers card: ranked list of subscribers by bandwidth consumption with progress bars (1st=brand, 2nd=brand/70, rest=brand/40), shows username + NAS + duration + total bytes.
+  * NAS Traffic Breakdown card: per-NAS traffic with progress bars, session count, download/upload/total.
+  * Summary stats: Total Download, Total Upload, Active Sessions, Top Talkers count.
+  * Auto-refresh every 15s.
+- Phase 6.5 — Alerts page (/monitoring/alerts):
+  * DataTable with severity icon (color-coded: error/critical=red, warning=yellow, info=blue), alert #, title+description, severity badge, source, triggered time, status badge.
+  * Stat tiles: Total, Active, Acknowledged, Resolved.
+  * Acknowledge and Resolve actions (resolve shows dialog with resolution notes).
+  * Filters: status dropdown, severity dropdown, search.
+- Phase 6.6 — Uptime & Latency page (/monitoring/uptime):
+  * Latency trend chart (Recharts LineChart) over selected time range.
+  * KPI cards: Uptime %, Avg Latency, Incidents (24h), Packet Loss.
+  * SLA Compliance card: uptime target vs current, max response time, compliance status (Compliant/At Risk).
+  * Performance Summary card: avg/p95 latency, active sessions, total bandwidth.
+  * Range selectors: 1h/6h/24h/7d/30d. Auto-refresh every 30s.
+- Phase 6.7 — Syslog page (/monitoring/syslog):
+  * DataTable with severity badge (color-coded 8 levels: emergency/alert/critical/error=red, warning=yellow, notice/info/debug=gray), facility badge, message with tag prefix, source (hostname + IP), timestamp.
+  * Stat tiles: Total Logs, Errors, Warnings, Info.
+  * Filters: severity dropdown (8 levels), facility dropdown, search.
+  * 50 rows per page (denser than other pages for log viewing).
+- Phase 6.8 — Seed data:
+  * Enabled monitoring module for demo tenant.
+  * 1,728 metric data points (24h of 5-minute interval data for 6 metrics: bandwidth_down, bandwidth_up, sessions, latency, cpu, memory). Realistic day/night traffic patterns.
+  * 3 alerts (1 active warning CPU high, 1 acknowledged info bandwidth spike, 1 resolved warning DNS latency).
+  * 12 syslog entries (auth, daemon, system, kernel, local0, local7 facilities with various severities — login, RADIUS, PPPoE, BGP, DHCP, firmware messages).
+- Fixed bugs during QA:
+  * Prisma client not regenerated after schema push → db.metricData was undefined → ran db:generate + dev server restart.
+  * Added missing useState import in uptime-client.
+
+Stage Summary:
+- Phase 6 (Monitoring) is COMPLETE and verified end-to-end with agent-browser.
+- All 5 monitoring pages render with real data:
+  * /monitoring/bandwidth — 48.2 Mbps download, real-time chart, range selectors, NAS traffic bars
+  * /monitoring/traffic — top talkers + NAS breakdown (0 bytes shown because seed sessions have 0 octets — real RADIUS accounting would populate these)
+  * /monitoring/alerts — 3 alerts (1 active, 1 acknowledged, 1 resolved) with acknowledge/resolve actions
+  * /monitoring/uptime — latency chart, SLA compliance, performance summary
+  * /monitoring/syslog — 12 log entries with severity colors and facility badges
+- Lint: 0 errors. Dev server healthy. RADIUS worker running.
+- Architecture: time-series metric storage with interval bucketing, alert lifecycle (active → acknowledged → resolved), syslog with standard facility/severity levels, all tenant-scoped with proper indexes for time-range queries.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 5/8/10-13 (Policy, Payments, Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 8: Payments (gateway abstraction, adapters, reconciliation) — builds on billing
+2. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrates with RADIUS attributes
+3. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
+4. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
+
+---
+Task ID: 8-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 8 — Payments (gateway abstraction, adapters, reconciliation).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 6 monitoring pages working. Confirmed /payments returned 404 (Phase 8 not started).
+- Phase 8.1 — Prisma schema additions:
+  * Added PaymentGatewayConfig model (name, displayName, adapter, enabled, isDefault, config JSON, supportedMethods, testMode, lastUsedAt). Unique constraint on [tenantId, name].
+  * Added reconciled, reconciledAt, notes fields to Payment model for reconciliation tracking.
+  * Added paymentGatewayConfigs relation to Tenant model. Pushed schema + regenerated Prisma client.
+- Phase 8.1 — Payment Gateway Adapter Interface (src/core/payments/adapters.ts):
+  * GatewayAdapter interface: createPayment, verifyWebhook, refund, isConfigured — each gateway implements this.
+  * ManualAdapter: for cash/bank/cheque payments, no external API, always configured.
+  * StripeAdapter: simulated createPayment (returns PaymentIntent ref), verifyWebhook, refund. Requires apiKey + webhookSecret.
+  * RazorpayAdapter: simulated createPayment (returns order ref), supports card/upi/netbanking/wallet/emi. Requires keyId + keySecret.
+  * PayPalAdapter: simulated createPayment (returns PAYID ref). Requires clientId + clientSecret.
+  * ADAPTERS registry + getAdapter(name) + listAdapters() for the catalog.
+  * Architecture: new gateways can be added by implementing GatewayAdapter — no changes to the payment service needed.
+- Phase 8.2 — Payments API:
+  * GET /api/v1/payments (paginated, search by number/subscriber/gatewayRef, filter by status/method/gateway). Includes subscriber + invoice relations.
+  * POST /api/v1/payments (record manual payment with auto PAY-YYYY-XXXX number, optional invoice linking — applies payment to invoice and updates status to paid/partial).
+  * Emits PAYMENT_RECEIVED + INVOICE_PAID events. Records audit.
+- Phase 8.2 — Payment Gateways API:
+  * GET /api/v1/payment-gateways (paginated list with adapter catalog).
+  * POST /api/v1/payment-gateways (create with duplicate name check, default flag management).
+  * GET/PATCH/DELETE /api/v1/payment-gateways/[id] (update enabled/default/testMode/config, delete).
+- Phase 8.2 — Reconciliation API:
+  * GET /api/v1/reconciliation (paginated, filter by unreconciled/reconciled/all, includes invoice matching info).
+  * POST /api/v1/reconciliation (bulk reconcile/unreconcile by paymentIds array, updates reconciled + reconciledAt).
+- Phase 8.3 — Payments page (/payments):
+  * DataTable with payment #, amount (currency), method badge (color-coded: cash=green, card=brand, bank=info, upi=warning), subscriber, invoice, gateway badge, status badge, reconciled icon, received time.
+  * Stat tiles: Total, Completed, Unreconciled, Total Amount.
+  * Record Payment dialog: amount, currency, method dropdown, subscriber ID, invoice ID, notes.
+  * Filters: status, method. Search by payment #/subscriber/gateway ref.
+- Phase 8.4 — Payment Gateways page (/payments/gateways):
+  * Available Adapters catalog card: shows all 4 adapters (Manual, Stripe, Razorpay, PayPal) with supported methods, required config fields, and configured status (green check or gray X).
+  * Configured gateways grid: cards with adapter-colored icon, name, DEFAULT/TEST badges, enable/disable Switch, supported methods badges, configured status, last used time.
+  * Add Gateway dialog: name, display name, adapter select, dynamic config fields (shows required fields per adapter with password inputs), test mode / enabled / default switches.
+- Phase 8.5 — Reconciliation page (/payments/reconciliation):
+  * DataTable with checkbox column (select all / individual), payment #, amount, method badge, subscriber, invoice (with paid/total), reconciled status icon, received time.
+  * Stat tiles: Total, Unreconciled, Reconciled, Pending Amount.
+  * Filter: unreconciled / reconciled / all.
+  * Bulk action bar: when payments selected, shows count + "Mark Reconciled" / "Mark Unreconciled" button.
+- Phase 8.6 — Seed data:
+  * Enabled payments module for demo tenant.
+  * 3 payment gateways: manual (default, enabled), razorpay (test mode, enabled, configured with test keys), stripe (test mode, disabled, configured with test keys).
+  * 4 additional payments: UPI via Razorpay (unreconciled), cash partial payment for overdue invoice (unreconciled), card via Razorpay (reconciled), failed card payment.
+- Fixed bugs during QA:
+  * Prisma client not regenerated after schema push → db.paymentGatewayConfig was undefined → ran db:generate + dev server restart.
+
+Stage Summary:
+- Phase 8 (Payments) is COMPLETE and verified end-to-end with agent-browser.
+- All 3 payment pages render with real data:
+  * /payments — 6 payments (5 completed, 1 failed), stat tiles, record payment dialog
+  * /payments/gateways — 3 gateways (manual=DEFAULT, razorpay=TEST enabled, stripe=TEST disabled), adapter catalog with 4 adapters
+  * /payments/reconciliation — 5 unreconciled payments with checkbox selection + bulk reconcile action
+- Lint: 0 errors. Dev server healthy.
+- Architecture: GatewayAdapter interface with 4 implementations (Manual, Stripe, Razorpay, PayPal), new gateways can be added without changing payment service. Payments link to invoices (updates invoice status on payment). Reconciliation tracks matched/unmatched payments.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 5/10-13 (Policy, Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 5: Policy (bandwidth profiles, QoS, time access, firewall) — integrates with RADIUS attributes
+2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
+3. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
+4. Phase 12: Communication (Email, SMS, WhatsApp, templates)
+
+---
+Task ID: 5-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 5 — Policy & QoS (Bandwidth Profiles, QoS Queues, Firewall Rules, Time Access).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 8 payments pages working. Confirmed /policy/bandwidth returned 404 (Phase 5 not started). Policy module was disabled by default.
+- Phase 5.1 — Prisma schema additions (4 new models):
+  * BandwidthProfile: name, downloadSpeed/uploadSpeed (Kbps), downloadBurst/uploadBurst, burstThreshold, burstTime, priority (1-8), status, assignedCount.
+  * QosQueue: name, type (pfifo/bfifo/codel/fq_codel/priority), priority, rateLimit, ceilLimit, quantum, status.
+  * FirewallRule: name, action (accept/drop/reject/masquerade), chain (input/output/forward), protocol, srcAddress, dstAddress, srcPort, dstPort, interface, direction, priority, enabled, log.
+  * TimeAccessProfile: name, schedule (JSON with per-day time windows), timezone, action (allow/deny outside schedule), status.
+  * Added relations to Tenant. Pushed schema + regenerated Prisma client.
+- Phase 5.2 — Policy APIs (8 routes):
+  * GET/POST /api/v1/bandwidth-profiles + GET/PATCH/DELETE [id]
+  * GET/POST /api/v1/qos-queues + GET/PATCH/DELETE [id]
+  * GET/POST /api/v1/firewall-rules + GET/PATCH/DELETE [id]
+  * GET/POST /api/v1/time-access + GET/PATCH/DELETE [id]
+  * All use requireModulePermission with policy.* permissions, recordAudit on mutations.
+- Phase 5.3 — Bandwidth Profiles page (/policy/bandwidth):
+  * DataTable: name+description, download (with TrendingDown icon), upload (with TrendingUp icon), burst (↓/↑), priority badge (color-coded P1=red to P8=gray), assigned count, status.
+  * Stat tiles: Total, Active, With Burst, Assignments.
+  * Create/Edit dialog: name, description, download/upload speed (Kbps with live Mbps conversion hint), burst settings (download/upload burst, threshold, time), priority (P1-P8 with "Highest"/"Lowest" labels), status.
+  * Delete confirmation.
+- Phase 5.4 — QoS Queues page (/policy/qos):
+  * DataTable: name+description, type badge (color-coded: CoDel=brand, FQ-CoDel=success, Priority=warning), priority badge, rate limit, ceiling, status.
+  * Stat tiles: Total, Active, Rate-Limited.
+  * Create/Edit dialog: name, description, type, priority, rate limit, ceiling, status.
+- Phase 5.5 — Firewall Rules page (/policy/firewall):
+  * DataTable: priority #, name+description, action badge (color-coded: accept=green, drop/reject=red, masquerade=warning), chain badge, match (protocol src→dst with ports), log badge, enabled Switch.
+  * Stat tiles: Total, Enabled, Disabled, Blocking (drop/reject rules).
+  * Filters: action dropdown, chain dropdown.
+  * Create/Edit dialog: name, description, action, chain, protocol, src/dst address, src/dst port, interface, priority, enabled, log switches.
+  * Enable/disable toggle via Switch.
+- Phase 5.6 — Time Access page (/policy/time-access):
+  * DataTable: name+description, schedule (formatted: "Every day: 08:00-22:00" or per-day), timezone, action badge (allow=green, deny=red), status.
+  * Stat tiles: Total, Active, Deny Outside.
+  * Create/Edit dialog: name, description, per-day schedule (Switch to enable day + time inputs for start/end), timezone, action (allow/deny), status.
+- Phase 5.7 — Seed data:
+  * Enabled policy module for demo tenant (also changed defaultEnabled to true in catalog).
+  * 5 bandwidth profiles: 50 Mbps Standard, 100 Mbps Premium (with burst), 25 Mbps Basic, 200 Mbps Enterprise (P1), Throttled 512 Kbps.
+  * 4 QoS queues: VoIP Priority (P1, 1Mbps), Gaming Low Latency (FQ-CoDel P2), Standard Data (FQ-CoDel P5), Background Bulk (PFIFO P8).
+  * 7 firewall rules: allow established, block SMTP, block malware C2, allow DNS, allow HTTPS, masquerade NAT, block BitTorrent (disabled).
+  * 3 time access profiles: Business Hours (9-5 Mon-Fri, deny outside), Night Only (22:00-06:00, deny outside), 24/7 Full Access.
+
+Stage Summary:
+- Phase 5 (Policy & QoS) is COMPLETE and verified end-to-end with agent-browser.
+- All 4 policy pages render with real data:
+  * /policy/bandwidth — 5 profiles with speed/burst/priority visualization
+  * /policy/qos — 4 queues with type badges and rate limits
+  * /policy/firewall — 7 rules with action colors and enable/disable switches
+  * /policy/time-access — 3 profiles with formatted schedules
+- Lint: 0 errors. Dev server healthy.
+- Architecture: all APIs use apiRoute + requireModulePermission + recordAudit, all pages use AuthenticatedLayout + DataTable, models are tenant-scoped with proper indexes.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 10-13 (Devices, Finance, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON)
+2. Phase 11: Finance & Intelligence (revenue reports, forecasting, collections)
+3. Phase 12: Communication (Email, SMS, WhatsApp, templates)
+4. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core)
+
+---
+Task ID: 11-complete
+Agent: auto-qa-cron (webDevReview)
+Task: Phase 11 — Finance & Intelligence (Revenue Reports, Collections, Tax/GST).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker running, Phase 5 policy pages working. Confirmed /finance/revenue returned 404 (Phase 11 not started). Finance module was disabled by default.
+- Phase 11.1 — Prisma schema additions:
+  * CollectionTask model: subscriberId, invoiceId, type (reminder/warning/suspension_notice/final_notice), status (pending/contacted/resolved/escalated), amount, dueDate, daysOverdue, contactMethod, contactNotes, contactedAt, resolvedAt, assignedTo.
+  * Added relations to Tenant, Subscriber, Invoice models.
+  * Changed finance module defaultEnabled to true in catalog. Pushed schema + regenerated Prisma client.
+- Phase 11.2 — Finance APIs:
+  * GET /api/v1/finance — revenue dashboard: total revenue, MRR, ARR, ARPU, outstanding amount, overdue amount, monthly breakdown (fills missing months with zero), revenue by payment method (pie data), revenue by gateway (bar data). Range: 3m/6m/ytd/12m/all.
+  * GET /api/v1/collections — paginated overdue/partial/issued invoices with subscriber contact info, balance due, days overdue calculation.
+  * PATCH /api/v1/collections — collection actions: mark_contacted, mark_resolved, escalate. Creates CollectionTask record with contact method, notes, timestamps. Records audit.
+  * GET /api/v1/tax — tax/GST summary: total subtotal, total tax, total revenue, avg tax rate, monthly breakdown with per-month tax rate calculation.
+- Phase 11.3 — Revenue Reports page (/finance/revenue):
+  * Range selectors: 3m, 6m, YTD, 12 Months, All Time.
+  * KPI cards: Total Revenue, MRR (with ARR hint), Outstanding (with invoice count), ARPU (with active subscriber count).
+  * Monthly Revenue bar chart (Recharts BarChart with brand red bars, $K formatter).
+  * Revenue by Payment Method pie chart (Recharts PieChart with multi-color cells).
+  * Revenue by Gateway bar list (progress bars, sorted by amount).
+  * Additional stats: Total Invoices, This Month Revenue, Overdue Amount.
+- Phase 11.4 — Collections page (/finance/collections):
+  * DataTable: invoice #, subscriber (name+ID+phone+email), balance due (red), due date with days overdue calculation, contact info, status badge.
+  * Stat tiles: Outstanding, Overdue, Critical (>7d) amount, Total Due.
+  * Contact action dialog: contact method dropdown (phone/email/SMS/WhatsApp/visit), contact notes textarea, Escalate + Mark Contacted buttons.
+  * Quick Resolve action (marks as resolved without dialog).
+  * Filter: status (all/overdue/partial/issued).
+- Phase 11.5 — Tax/GST page (/finance/tax):
+  * Range selectors: 3m, 6m, YTD, 12 Months.
+  * KPI cards: Total Subtotal, Total Tax Collected, Total Revenue (incl. tax), Avg Tax Rate.
+  * Monthly Tax Breakdown bar chart (subtotal vs tax, grouped bars).
+  * Monthly Tax Details table with totals row: month, subtotal, tax amount, total, tax rate.
+- Phase 11.6 — Module enablement:
+  * Enabled finance module for demo tenant via script.
+  * Verified Finance nav appears in sidebar: Revenue Reports, Collections, Tax / GST.
+
+Stage Summary:
+- Phase 11 (Finance & Intelligence) is COMPLETE and verified end-to-end with agent-browser.
+- All 3 finance pages render with real data:
+  * /finance/revenue — charts (bar+pie), KPIs, gateway breakdown bars
+  * /finance/collections — 5 overdue invoices with contact actions (mark contacted/resolve/escalate)
+  * /finance/tax — 13-row monthly tax breakdown table with chart
+- Lint: 0 errors. Dev server healthy.
+- Architecture: real-time revenue aggregation from Payment records, monthly bucketing with zero-fill for missing months, tax rate calculation per month, collection task lifecycle (pending → contacted → resolved/escalated), all tenant-scoped.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 11 (Finance & Intelligence): COMPLETE ✓
+- Phase 10/12/13 (Devices, Communication, AI): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 12: Communication (Email, SMS, WhatsApp, templates, notification rules) — adapter architecture
+2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
+3. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core)
+4. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)
+
+---
+Task ID: 12-complete
+Agent: lead-architect (continued)
+Task: Phase 12 — Communication (Email, SMS, WhatsApp, Templates, Rules).
+
+Work Log:
+- QA assessment: dev server healthy, RADIUS worker needed restart (Prisma symlink fix). .env was missing NEXTAUTH_SECRET — restored it.
+- Phase 12.1 — Prisma schema additions (3 new models):
+  * NotificationTemplate: name, channel (email/sms/whatsapp/push), subject, body (with {{variable}} placeholders), variables (auto-extracted), language, status.
+  * NotificationRule: name, event (e.g. subscriber.created, invoice.paid), templateId, channel, recipient (subscriber/admin/custom), customRecipient, enabled, delayMinutes.
+  * CommunicationLog: templateId, channel, recipient, subject, body (rendered), status (pending/sent/failed/delivered), error, sentAt, deliveredAt.
+  * Added relations to Tenant + NotificationTemplate. Pushed schema + regenerated Prisma client.
+- Phase 12.2 — Communication adapter interface (src/core/communication/adapters.ts):
+  * ChannelAdapter interface: send(), isConfigured() — each channel implements this.
+  * EmailAdapter: SMTP-based (simulated in sandbox). Requires smtpHost, smtpPort, smtpUser, smtpPassword.
+  * SmsAdapter: Twilio-based (simulated). Requires accountSid, authToken, fromNumber.
+  * WhatsAppAdapter: WhatsApp Business Cloud API (simulated). Requires apiToken, phoneNumberId.
+  * PushAdapter: FCM-based (simulated). Requires fcmServerKey.
+  * renderTemplate(): replaces {{variables}} with values.
+  * extractVariables(): auto-extracts variable names from template body.
+  * ADAPTERS registry + getChannelAdapter() + listChannelAdapters().
+- Phase 12.2 — Communication APIs:
+  * GET/POST /api/v1/templates (paginated list with auto-extracted variables, create with duplicate check).
+  * GET/PATCH/DELETE /api/v1/templates/[id] (PATCH supports send_test action — renders template with test vars, sends via adapter, logs to CommunicationLog).
+  * GET/POST /api/v1/notification-rules (paginated list with template join, create with template validation).
+  * GET/PATCH/DELETE /api/v1/notification-rules/[id] (update enabled/event/template/recipient/delay).
+- Phase 12.3 — Templates page (/communication/templates):
+  * DataTable: name with channel-colored icon (email=brand, sms=success, whatsapp=info, push=warning), channel badge, variables (auto-extracted {{var}} badges), status badge, created time.
+  * Stat tiles: Total, Email, SMS, WhatsApp counts.
+  * Create/Edit dialog: name, channel select, subject (email only), body textarea with variable placeholder hint, language, status.
+  * Send Test action: dialog with recipient input, sends test via adapter, logs result.
+  * Delete confirmation.
+- Phase 12.4 — Notification Rules page (/communication/rules):
+  * DataTable: name, event (mono brand), mapping (event → template with ArrowRight icon), channel badge, delay (Immediate or Xm), enabled Switch, created time.
+  * Stat tiles: Total Rules, Active, Unique Events.
+  * Create/Edit dialog: name, event dropdown (16 events from subscriber/invoice/payment/session/complaint/nas/alert), template select (auto-sets channel), channel, recipient (subscriber/admin/custom), custom recipient, delay minutes, enabled.
+  * Enable/disable toggle via Switch.
+  * Delete confirmation.
+- Phase 12.5 — Seed data:
+  * Enabled communication module for demo tenant.
+  * 5 templates: Welcome Email, Invoice Generated Email, Payment Confirmation SMS, Suspension Notice WhatsApp, Session Connected Push.
+  * 5 rules: Welcome on Signup, Invoice Email, Payment SMS (5min delay), Suspension WhatsApp, Session Push (disabled).
+  * 3 communication logs: 1 sent, 1 delivered, 1 failed (SMTP timeout).
+- Fixed bugs during QA:
+  * JSX parsing error: `{{firstName}}` in JSX attributes interpreted as JSX expressions → removed double-brace placeholders from JSX attributes.
+  * .env file was missing NEXTAUTH_SECRET → restored all env variables.
+  * RADIUS worker Prisma client not found → symlinked prisma/ and .env from main project.
+
+Stage Summary:
+- Phase 12 (Communication) is COMPLETE and verified end-to-end with agent-browser.
+- All 2 communication pages render with real data:
+  * /communication/templates — 5 templates (email x2, sms, whatsapp, push) with auto-extracted variables
+  * /communication/rules — 5 rules (4 enabled, 1 disabled) with event→template mappings
+- Lint: 0 errors. Dev server healthy.
+- Architecture: ChannelAdapter interface with 4 implementations (Email/SMTP, SMS/Twilio, WhatsApp Business, Push/FCM), template rendering with variable extraction, event-driven rule engine (events → templates → channels).
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 11 (Finance & Intelligence): COMPLETE ✓
+- Phase 12 (Communication): COMPLETE ✓
+- Phase 10/13/14 (Devices, AI, Production Hardening): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core) — uses z-ai-web-dev-sdk
+2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
+3. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)
+
+---
+Task ID: 13-complete
+Agent: lead-architect
+Task: Phase 13 — AI Intelligence (Advisor, Diagnosis, Churn Prediction).
+
+Work Log:
+- QA assessment: dev server healthy. RADIUS worker needed restart. .env was missing NEXTAUTH_SECRET again — restored it permanently.
+- Phase 13.1 — Prisma schema additions (2 new models):
+  * ChurnPrediction: subscriberId, riskScore (0-100), riskLevel (low/medium/high/critical), factors (JSON array), recommendation, modelVersion, evaluatedAt.
+  * AiConversation: userId, type (advisor/diagnosis/general), title, messages (JSON array of {role, content, timestamp}), status.
+  * Added relations to Tenant + Subscriber. Pushed schema + regenerated Prisma client. Enabled AI module (defaultEnabled=true in catalog + DB).
+- Phase 13.2 — AI Advisor API (src/app/api/v1/ai-advisor/route.ts):
+  * GET — list conversations or get specific conversation with messages.
+  * POST — send message to LLM (z-ai-web-dev-sdk), persist conversation in AiConversation table.
+  * System prompt: "You are Cryptsk AI Advisor, an expert assistant for an OSS/BSS + AAA/RADIUS platform..."
+  * Multi-turn conversation: builds messages array from conversation history (last 10 messages).
+  * Graceful fallback: if LLM unavailable, returns friendly error message instead of crashing.
+  * Records audit on each chat.
+- Phase 13.3 — AI Advisor page (/ai/advisor):
+  * Chat interface with message bubbles (user=brand red, AI=muted background).
+  * Suggestion buttons: "How do I handle overdue invoices?", "What RADIUS attributes for bandwidth?", "High CPU on NAS?", etc.
+  * Enter to send, Shift+Enter for newline. Loading spinner during AI response.
+  * New Chat button to start fresh conversation.
+  * Sidebar: AI capabilities list + architecture note.
+  * VERIFIED E2E: asked "How do I handle a subscriber with overdue invoices?" → AI responded with 6-step guide referencing Customer 360, Communications, Billing, Policy, and Collections modules.
+- Phase 13.4 — Churn Prediction API + page:
+  * API: GET /api/v1/ai-churn (list predictions), GET ?action=analyze (run analysis on all active subscribers).
+  * Rule-based scoring: overdue invoices (+30), partial payments (+15), no session 7+ days (+20), open complaints (+10 each, max 20), suspended status (+25). Score capped at 100.
+  * Risk levels: Low (0-29), Medium (30-49), High (50-69), Critical (70-100).
+  * Recommendations generated per risk level (Urgent contact / Follow-up / Monitor / No action).
+  * Page (/ai/churn): DataTable with subscriber, plan, risk score (with progress bar), risk level badge, factors (badges), recommendation, evaluated time. Stat tiles: Total, High/Critical, Medium, Low. Run Analysis button. Risk scoring model explanation card.
+- Phase 13.5 — AI Diagnosis API + page:
+  * API: GET /api/v1/ai-diagnosis (health summary: active sessions, subscribers, billing, operations, network metrics). POST (sends health data to LLM for analysis).
+  * LLM prompt: sends formatted health report and asks for: overall assessment, top 3 concerns, recommended actions, capacity insights.
+  * Fallback: if LLM unavailable, generates rule-based diagnosis with key metrics and recommended actions.
+  * Page (/ai/diagnosis): Health status banner (healthy/warning/critical with colored ring). KPI cards (Active Sessions, Active Subscribers, Overdue Invoices, Revenue 24h). Operations stats (Complaints, Incidents, Alerts). AI Analysis Report card with formatted diagnosis output. "How it works" explanation card.
+  * VERIFIED E2E: page loads showing "Critical System" with 3 issues (1 active alert, 2 open incidents, 1 suspended subscriber >10%).
+- Architecture: z-ai-web-dev-sdk used ONLY in backend (server-side). AI never blocks core platform — all AI features have fallback responses. Conversations persisted in DB. Churn analysis uses rule-based scoring (can be enhanced with ML later).
+
+Stage Summary:
+- Phase 13 (AI Intelligence) is COMPLETE and verified end-to-end with agent-browser.
+- All 3 AI pages render and work:
+  * /ai/advisor — chat interface with REAL LLM responses (tested: asked about overdue invoices, got 6-step guide)
+  * /ai/churn — churn prediction with risk scoring (analyzed subscribers, showed risk levels with progress bars)
+  * /ai/diagnosis — network health analysis (showed "Critical System" with 3 detected issues)
+- Lint: 0 errors. Dev server healthy.
+- Architecture: LLM via z-ai-web-dev-sdk (backend only), graceful fallbacks, conversation persistence, rule-based churn scoring, real-time health data aggregation.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 11 (Finance & Intelligence): COMPLETE ✓
+- Phase 12 (Communication): COMPLETE ✓
+- Phase 13 (AI Intelligence): COMPLETE ✓
+- Phase 10/14 (Device Management, Production Hardening): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
+2. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)

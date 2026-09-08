@@ -58,6 +58,18 @@ import {
   Bot,
   Stethoscope,
   TrendingDown,
+  MapPin,
+  Store,
+  BadgeDollarSign,
+  Tag,
+  Megaphone,
+  DatabaseBackup,
+  CalendarClock,
+  Zap,
+  SlidersHorizontal,
+  FileMinus,
+  Gift,
+  Award,
   type LucideIcon,
 } from "lucide-react";
 
@@ -118,6 +130,18 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Bot,
   Stethoscope,
   TrendingDown,
+  MapPin,
+  Store,
+  BadgeDollarSign,
+  Tag,
+  Megaphone,
+  DatabaseBackup,
+  CalendarClock,
+  Zap,
+  SlidersHorizontal,
+  FileMinus,
+  Gift,
+  Award,
 };
 
 export function resolveIcon(name: string): LucideIcon {
