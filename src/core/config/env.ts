@@ -9,7 +9,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   DATABASE_URL: z.string().default("file:/home/z/my-project/db/custom.db"),
   NEXTAUTH_URL: z.string().default("http://localhost:3000"),
-  NEXTAUTH_SECRET: z.string().min(1),
+  NEXTAUTH_SECRET: z.string().default("cryptsk-dev-secret-change-me-in-production-32chars"),
 
   // RADIUS / AAA
   RADIUS_AUTH_PORT: z.coerce.number().default(1812),

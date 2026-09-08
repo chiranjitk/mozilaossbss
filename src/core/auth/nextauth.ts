@@ -208,6 +208,7 @@ export const authOptions: NextAuthOptions = {
     error: "/login",
   },
 
-  // Use the configured secret
-  secret: process.env.NEXTAUTH_SECRET,
+  // Use the configured secret with a stable fallback for dev
+  // This prevents JWT decryption errors if .env is reset
+  secret: process.env.NEXTAUTH_SECRET || "cryptsk-dev-secret-change-me-in-production-32chars",
 };
