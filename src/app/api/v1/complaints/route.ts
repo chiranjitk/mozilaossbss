@@ -118,6 +118,32 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
     },
   });
 
+  // === INDUSTRY STANDARD: SLA deadline calculation based on priority ===
+  const slaHours: Record<string, number> = { low: 48, normal: 24, high: 8, urgent: 4 };
+  const slaDeadline = new Date(Date.now() + (slaHours[data.priority] || 24) * 60 * 60 * 1000);
+
+  // Auto-assign to best available technician if not assigned
+  if (!data.assignedTo) {
+    const availableTech = await db.technician.findFirst({
+      where: { tenantId: ctx.tenantId, status: "active" },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true, userId: true },
+    });
+    if (availableTech?.userId) {
+      await db.complaint.update({
+        where: { id: complaint.id },
+        data: { assignedTo: availableTech.userId, status: "in_progress" },
+      });
+    }
+  }
+
+  // Emit SLA info in event
+  await eventBus.emit(
+    EVENTS.COMPLAINT_CREATED,
+    { complaintId: complaint.id, ticketNo, subject: data.subject, priority: data.priority, slaDeadline: slaDeadline.toISOString(), slaHours: slaHours[data.priority] },
+    { tenantId: ctx.tenantId, source: "operations", requestId }
+  );
+
   await recordAudit({
     tenantId: ctx.tenantId,
     userId: ctx.userId,
@@ -126,15 +152,9 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
     resource: "Complaint",
     resourceId: complaint.id,
     requestId,
-    newValue: { ticketNo, subject: data.subject, priority: data.priority },
-    message: `Created complaint ${ticketNo}: ${data.subject}`,
+    newValue: { ticketNo, subject: data.subject, priority: data.priority, slaDeadline: slaDeadline.toISOString() },
+    message: `Created complaint ${ticketNo}: ${data.subject} (SLA: ${slaHours[data.priority]}h, deadline: ${slaDeadline.toISOString()})`,
   });
-
-  await eventBus.emit(
-    EVENTS.COMPLAINT_CREATED,
-    { complaintId: complaint.id, ticketNo, subject: data.subject },
-    { tenantId: ctx.tenantId, source: "operations", requestId }
-  );
 
   return created(
     {
@@ -142,6 +162,8 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
       ticketNo: complaint.ticketNo,
       subject: complaint.subject,
       status: complaint.status,
+      slaDeadline: slaDeadline.toISOString(),
+      slaHours: slaHours[data.priority],
     },
     requestId
   );

@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiRoute, ok, created, paginated, ApiError } from "@/core/api/errors";
 import { requireModulePermission } from "@/core/rbac";
 import { recordAudit } from "@/core/repositories/audit";
+import { eventBus } from "@/core/events/bus";
 import { parsePagination } from "@/core/repositories/base";
 
 export const dynamic = "force-dynamic";
@@ -88,10 +89,39 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
   data.status = data.quantity <= 0 ? "out_of_stock" : data.quantity <= data.reorderPoint ? "low_stock" : "in_stock";
 
   const item = await db.inventoryItem.create({ data: { tenantId: ctx.tenantId, ...data } });
+
+  // === INDUSTRY STANDARD: Low stock alert ===
+  if (item.status === "low_stock" || item.status === "out_of_stock") {
+    await db.alert.create({
+      data: {
+        tenantId: ctx.tenantId,
+        alertNo: `ALR-INV-${Date.now()}`,
+        title: `Inventory ${item.status === "out_of_stock" ? "Out of Stock" : "Low Stock"}: ${item.name}`,
+        description: `Item "${item.name}" (SKU: ${item.sku || "N/A"}) is ${item.status}. Current: ${item.quantity} ${item.unit}, reorder point: ${item.reorderPoint}.`,
+        severity: item.status === "out_of_stock" ? "error" : "warning",
+        status: "active",
+        category: "system",
+        source: `inventory:${item.id}`,
+        threshold: item.reorderPoint,
+        currentValue: item.quantity,
+      },
+    }).catch(() => {});
+
+    // Emit event for notification rules
+    await eventBus.emit("inventory.low_stock", {
+      itemId: item.id,
+      itemName: item.name,
+      sku: item.sku,
+      quantity: item.quantity,
+      reorderPoint: item.reorderPoint,
+      status: item.status,
+    }, { tenantId: ctx.tenantId, source: "operations" });
+  }
+
   await recordAudit({
     tenantId: ctx.tenantId, userId: ctx.userId, action: "inventory.create",
     module: "operations", resource: "InventoryItem", resourceId: item.id, requestId,
-    message: `Created inventory item ${item.name} (${item.quantity} ${item.unit})`,
+    message: `Created inventory item ${item.name} (${item.quantity} ${item.unit}) → status: ${item.status}`,
   });
   return created({ id: item.id, name: item.name, status: item.status }, requestId);
 });
