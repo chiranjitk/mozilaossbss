@@ -70,6 +70,8 @@ model Tenant {
   notificationTemplates NotificationTemplate[]
   notificationRules NotificationRule[]
   communicationLogs CommunicationLog[]
+  churnPredictions ChurnPrediction[]
+  aiConversations AiConversation[]
 }
 
 // =====================================================================
@@ -269,6 +271,7 @@ model Subscriber {
   vouchers    Voucher[]
   installations Installation[]
   collectionTasks CollectionTask[]
+  churnPredictions ChurnPrediction[]
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
@@ -857,6 +860,45 @@ model CommunicationLog {
   @@index([tenantId, status])
   @@index([channel, status])
   @@index([createdAt])
+}
+
+// =====================================================================
+// AI (Phase 13) — churn prediction, AI advisor conversations, diagnosis
+// =====================================================================
+
+model ChurnPrediction {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriberId    String?
+  subscriber      Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  riskScore      Float    // 0-100, higher = more likely to churn
+  riskLevel       String   // low | medium | high | critical
+  factors         String?  // JSON array of risk factors
+  recommendation  String?  // AI-generated recommendation
+  modelVersion    String   @default("v1.0")
+  evaluatedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, riskLevel])
+  @@index([subscriberId])
+  @@index([evaluatedAt])
+}
+
+model AiConversation {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String
+  type          String   @default("advisor") // advisor | diagnosis | general
+  title         String   @default("New Conversation")
+  messages      String   // JSON array of { role, content, timestamp }
+  status        String   @default("active") // active | archived
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, userId])
+  @@index([tenantId, type])
 }
 
 // =====================================================================

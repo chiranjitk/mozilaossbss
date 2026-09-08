@@ -975,3 +975,71 @@ Priority recommendations for next phase:
 1. Phase 13: AI (Advisor, Diagnosis, Churn prediction — optional, never blocks core) — uses z-ai-web-dev-sdk
 2. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
 3. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)
+
+---
+Task ID: 13-complete
+Agent: lead-architect
+Task: Phase 13 — AI Intelligence (Advisor, Diagnosis, Churn Prediction).
+
+Work Log:
+- QA assessment: dev server healthy. RADIUS worker needed restart. .env was missing NEXTAUTH_SECRET again — restored it permanently.
+- Phase 13.1 — Prisma schema additions (2 new models):
+  * ChurnPrediction: subscriberId, riskScore (0-100), riskLevel (low/medium/high/critical), factors (JSON array), recommendation, modelVersion, evaluatedAt.
+  * AiConversation: userId, type (advisor/diagnosis/general), title, messages (JSON array of {role, content, timestamp}), status.
+  * Added relations to Tenant + Subscriber. Pushed schema + regenerated Prisma client. Enabled AI module (defaultEnabled=true in catalog + DB).
+- Phase 13.2 — AI Advisor API (src/app/api/v1/ai-advisor/route.ts):
+  * GET — list conversations or get specific conversation with messages.
+  * POST — send message to LLM (z-ai-web-dev-sdk), persist conversation in AiConversation table.
+  * System prompt: "You are Cryptsk AI Advisor, an expert assistant for an OSS/BSS + AAA/RADIUS platform..."
+  * Multi-turn conversation: builds messages array from conversation history (last 10 messages).
+  * Graceful fallback: if LLM unavailable, returns friendly error message instead of crashing.
+  * Records audit on each chat.
+- Phase 13.3 — AI Advisor page (/ai/advisor):
+  * Chat interface with message bubbles (user=brand red, AI=muted background).
+  * Suggestion buttons: "How do I handle overdue invoices?", "What RADIUS attributes for bandwidth?", "High CPU on NAS?", etc.
+  * Enter to send, Shift+Enter for newline. Loading spinner during AI response.
+  * New Chat button to start fresh conversation.
+  * Sidebar: AI capabilities list + architecture note.
+  * VERIFIED E2E: asked "How do I handle a subscriber with overdue invoices?" → AI responded with 6-step guide referencing Customer 360, Communications, Billing, Policy, and Collections modules.
+- Phase 13.4 — Churn Prediction API + page:
+  * API: GET /api/v1/ai-churn (list predictions), GET ?action=analyze (run analysis on all active subscribers).
+  * Rule-based scoring: overdue invoices (+30), partial payments (+15), no session 7+ days (+20), open complaints (+10 each, max 20), suspended status (+25). Score capped at 100.
+  * Risk levels: Low (0-29), Medium (30-49), High (50-69), Critical (70-100).
+  * Recommendations generated per risk level (Urgent contact / Follow-up / Monitor / No action).
+  * Page (/ai/churn): DataTable with subscriber, plan, risk score (with progress bar), risk level badge, factors (badges), recommendation, evaluated time. Stat tiles: Total, High/Critical, Medium, Low. Run Analysis button. Risk scoring model explanation card.
+- Phase 13.5 — AI Diagnosis API + page:
+  * API: GET /api/v1/ai-diagnosis (health summary: active sessions, subscribers, billing, operations, network metrics). POST (sends health data to LLM for analysis).
+  * LLM prompt: sends formatted health report and asks for: overall assessment, top 3 concerns, recommended actions, capacity insights.
+  * Fallback: if LLM unavailable, generates rule-based diagnosis with key metrics and recommended actions.
+  * Page (/ai/diagnosis): Health status banner (healthy/warning/critical with colored ring). KPI cards (Active Sessions, Active Subscribers, Overdue Invoices, Revenue 24h). Operations stats (Complaints, Incidents, Alerts). AI Analysis Report card with formatted diagnosis output. "How it works" explanation card.
+  * VERIFIED E2E: page loads showing "Critical System" with 3 issues (1 active alert, 2 open incidents, 1 suspended subscriber >10%).
+- Architecture: z-ai-web-dev-sdk used ONLY in backend (server-side). AI never blocks core platform — all AI features have fallback responses. Conversations persisted in DB. Churn analysis uses rule-based scoring (can be enhanced with ML later).
+
+Stage Summary:
+- Phase 13 (AI Intelligence) is COMPLETE and verified end-to-end with agent-browser.
+- All 3 AI pages render and work:
+  * /ai/advisor — chat interface with REAL LLM responses (tested: asked about overdue invoices, got 6-step guide)
+  * /ai/churn — churn prediction with risk scoring (analyzed subscribers, showed risk levels with progress bars)
+  * /ai/diagnosis — network health analysis (showed "Critical System" with 3 detected issues)
+- Lint: 0 errors. Dev server healthy.
+- Architecture: LLM via z-ai-web-dev-sdk (backend only), graceful fallbacks, conversation persistence, rule-based churn scoring, real-time health data aggregation.
+
+Current project status:
+- Phase 0 (Foundation): COMPLETE ✓
+- Phase 1 (Core Platform): COMPLETE ✓
+- Phase 2 (Customer Management): COMPLETE ✓
+- Phase 3 (AAA/RADIUS): COMPLETE ✓
+- Phase 4 (Network Management): COMPLETE ✓
+- Phase 5 (Policy & QoS): COMPLETE ✓
+- Phase 6 (Monitoring): COMPLETE ✓
+- Phase 7 (Billing & Invoicing): COMPLETE ✓
+- Phase 8 (Payments): COMPLETE ✓
+- Phase 9 (Operations): COMPLETE ✓
+- Phase 11 (Finance & Intelligence): COMPLETE ✓
+- Phase 12 (Communication): COMPLETE ✓
+- Phase 13 (AI Intelligence): COMPLETE ✓
+- Phase 10/14 (Device Management, Production Hardening): NOT STARTED
+
+Priority recommendations for next phase:
+1. Phase 10: Device Management (TR-069, MikroTik, SNMP, GPON) — adapter architecture
+2. Phase 14: Production Hardening (security audit, performance, backup, E2E tests)

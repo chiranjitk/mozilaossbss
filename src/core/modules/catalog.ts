@@ -832,7 +832,7 @@ export const MODULE_CATALOG: CryptskModule[] = [
     resources: ["full-stack", "with-worker", "external-connection"],
     hasWorker: true,
     requiresExternalConnection: true,
-    defaultEnabled: false,
+    defaultEnabled: true,
     coreModule: false,
     licenseTier: "enterprise",
     navigation: [
