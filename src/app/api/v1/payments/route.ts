@@ -143,5 +143,116 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
 
   await eventBus.emit(EVENTS.PAYMENT_RECEIVED, { paymentId: payment.id, number, amount: data.amount, method: data.method }, { tenantId: ctx.tenantId, source: "payments", requestId });
 
+  // === INDUSTRY STANDARD: Loyalty points earning + Referral reward ===
+  if (data.subscriberId) {
+    // 1. Award loyalty points (1 point per 100 currency units)
+    const pointsToAward = Math.floor(data.amount / 100);
+    if (pointsToAward > 0) {
+      const loyalty = await db.loyaltyMember.findFirst({
+        where: { subscriberId: data.subscriberId },
+      });
+
+      if (loyalty) {
+        const newPoints = loyalty.points + pointsToAward;
+        const newTotalEarned = loyalty.totalEarned + pointsToAward;
+
+        // Auto tier progression
+        let newTier = loyalty.tier;
+        if (newTotalEarned >= 10000) newTier = "platinum";
+        else if (newTotalEarned >= 5000) newTier = "gold";
+        else if (newTotalEarned >= 1000) newTier = "silver";
+
+        await db.loyaltyMember.update({
+          where: { id: loyalty.id },
+          data: {
+            points: newPoints,
+            totalEarned: newTotalEarned,
+            tier: newTier,
+          },
+        });
+      } else {
+        // Auto-enroll in loyalty program on first payment
+        await db.loyaltyMember.create({
+          data: {
+            tenantId: ctx.tenantId,
+            subscriberId: data.subscriberId,
+            points: pointsToAward,
+            totalEarned: pointsToAward,
+            tier: "bronze",
+          },
+        }).catch(() => {}); // Ignore if already exists
+      }
+    }
+
+    // 2. Check for pending referral rewards
+    const referral = await db.referral.findFirst({
+      where: { refereeId: data.subscriberId, status: "pending" },
+    });
+
+    if (referral) {
+      // Mark referral as completed
+      await db.referral.update({
+        where: { id: referral.id },
+        data: { status: "completed", completedAt: new Date() },
+      });
+
+      // Award referral reward to referrer
+      if (referral.referrerId) {
+        const referrerLoyalty = await db.loyaltyMember.findFirst({
+          where: { subscriberId: referral.referrerId },
+        });
+
+        if (referrerLoyalty) {
+          const bonusPoints = Math.floor(referral.rewardValue * 10); // 10x reward as points
+          await db.loyaltyMember.update({
+            where: { id: referrerLoyalty.id },
+            data: {
+              points: { increment: bonusPoints },
+              totalEarned: { increment: bonusPoints },
+            },
+          });
+        }
+
+        // Create ActionHistory for referral completion
+        await db.actionHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            subscriberId: referral.referrerId,
+            action: "note_add",
+            performedBy: ctx.userId,
+            notes: `Referral reward: ${referral.rewardType} ${referral.rewardValue} for referring subscriber`,
+          },
+        }).catch(() => {});
+      }
+    }
+
+    // 3. If invoice is now fully paid, auto-reactivate subscriber if suspended
+    if (data.invoiceId) {
+      const updatedInvoice = await db.invoice.findFirst({
+        where: { id: data.invoiceId, tenantId: ctx.tenantId },
+      });
+      if (updatedInvoice?.status === "paid" && updatedInvoice.subscriberId) {
+        const sub = await db.subscriber.findFirst({
+          where: { id: updatedInvoice.subscriberId, status: "suspended" },
+        });
+        if (sub) {
+          // Auto-reactivate: remove RADIUS reject + restore access
+          const { transitionSubscriberStatus } = await import("@/core/repositories/subscriber");
+          await transitionSubscriberStatus(ctx.tenantId, sub.id, "active" as any, ctx.userId);
+
+          await db.actionHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              subscriberId: sub.id,
+              action: "activate",
+              performedBy: ctx.userId,
+              notes: "Auto-reactivated after payment received",
+            },
+          }).catch(() => {});
+        }
+      }
+    }
+  }
+
   return created({ id: payment.id, number, amount: data.amount, status: payment.status }, requestId);
 });

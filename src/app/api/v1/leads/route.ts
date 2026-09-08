@@ -113,34 +113,54 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
       source: data.source,
       status: data.status,
       interestedPlanId: data.interestedPlanId || null,
-      estimatedValue:
-        data.estimatedValue === null || data.estimatedValue === undefined
-          ? null
-          : data.estimatedValue,
+      estimatedValue: data.estimatedValue === null || data.estimatedValue === undefined ? null : data.estimatedValue,
       notes: data.notes || null,
       followUpDate: data.followUpDate ? new Date(data.followUpDate) : null,
       assignedTo: data.assignedTo || null,
     },
   });
 
-  await recordAudit({
-    tenantId: ctx.tenantId,
-    userId: ctx.userId,
-    action: "lead.create",
-    module: "operations",
-    resource: "Lead",
-    resourceId: lead.id,
-    requestId,
-    newValue: { name: lead.name, source: lead.source, status: lead.status },
-    message: `Created lead "${lead.name}"`,
+  // === INDUSTRY STANDARD: Auto-calculate lead score ===
+  let leadScore = 0;
+  const scoreFactors: string[] = [];
+
+  // Source scoring (higher quality sources = higher score)
+  const sourceScores: Record<string, number> = {
+    referral: 30, walk_in: 25, call: 20, website: 15, whatsapp: 15, social_media: 10, other: 5,
+  };
+  leadScore += sourceScores[lead.source] ?? 5;
+  if (sourceScores[lead.source] >= 20) scoreFactors.push(`High-quality source: ${lead.source}`);
+
+  // Phone provided = higher intent
+  if (lead.phone) { leadScore += 15; scoreFactors.push("Phone number provided"); }
+  // Email provided
+  if (lead.email) { leadScore += 10; scoreFactors.push("Email provided"); }
+  // Address provided
+  if (lead.address) { leadScore += 5; scoreFactors.push("Address provided"); }
+  // Interested in specific plan
+  if (lead.interestedPlanId) { leadScore += 20; scoreFactors.push("Specific plan interest"); }
+  // Estimated value
+  if (lead.estimatedValue && lead.estimatedValue > 0) {
+    leadScore += Math.min(20, Math.floor(lead.estimatedValue / 100));
+    scoreFactors.push(`Estimated value: $${lead.estimatedValue}`);
+  }
+  // Assigned to agent = being worked
+  if (lead.assignedTo) { leadScore += 10; scoreFactors.push("Assigned to agent"); }
+
+  // Store score in notes (since Lead model doesn't have a score field)
+  const existingNotes = lead.notes || "";
+  const scoreNote = `\n[Lead Score: ${leadScore}/100 — ${scoreFactors.join(", ")}]`;
+  await db.lead.update({
+    where: { id: lead.id },
+    data: { notes: existingNotes + scoreNote },
   });
 
-  return created(
-    {
-      id: lead.id,
-      name: lead.name,
-      status: lead.status,
-    },
-    requestId
-  );
+  await recordAudit({
+    tenantId: ctx.tenantId, userId: ctx.userId, action: "lead.create",
+    module: "operations", resource: "Lead", resourceId: lead.id, requestId,
+    newValue: { name: lead.name, source: lead.source, status: lead.status, score: leadScore },
+    message: `Created lead "${lead.name}" (score: ${leadScore}/100)`,
+  });
+
+  return created({ id: lead.id, name: lead.name, status: lead.status, score: leadScore }, requestId);
 });

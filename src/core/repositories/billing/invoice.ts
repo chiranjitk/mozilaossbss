@@ -276,6 +276,10 @@ export async function markOverdueInvoices(tenantId: string): Promise<number> {
  * Run billing for active subscribers: generate invoices for all active
  * subscribers with a plan. Skips subscribers who already have an unpaid
  * invoice for the current billing period.
+ * INDUSTRY STANDARD:
+ *   - Skips subscribers with active grace periods (pre-billing grace)
+ *   - Applies charge overrides (discounts/surcharges) to invoice amount
+ *   - Auto-suspends subscribers whose overdue invoices exceed grace period
  */
 export async function runBilling(
   tenantId: string,
@@ -283,6 +287,7 @@ export async function runBilling(
 ): Promise<{
   generated: number;
   skipped: number;
+  suspended: number;
   errors: Array<{ subscriberId: string; error: string }>;
   totalAmount: number;
 }> {
@@ -297,6 +302,7 @@ export async function runBilling(
   const errors: Array<{ subscriberId: string; error: string }> = [];
   let generated = 0;
   let skipped = 0;
+  let suspended = 0;
   let totalAmount = 0;
 
   const now = new Date();
@@ -305,10 +311,10 @@ export async function runBilling(
 
   for (const sub of subscribers) {
     try {
-      // Check if subscriber already has an unpaid invoice this billing period
       const periodStart = new Date(currentYear, currentMonth, 1);
       const periodEnd = new Date(currentYear, currentMonth + 1, 1);
 
+      // 1. Check if subscriber already has an unpaid invoice this billing period
       const existingUnpaid = await db.invoice.findFirst({
         where: {
           tenantId,
@@ -323,6 +329,54 @@ export async function runBilling(
         continue;
       }
 
+      // 2. Check for active grace period (pre-billing grace)
+      const activeGrace = await db.gracePeriod.findFirst({
+        where: {
+          tenantId,
+          subscriberId: sub.id,
+          type: "pre_billing",
+          status: "active",
+          endDate: { gt: now },
+        },
+      });
+
+      if (activeGrace) {
+        skipped++;
+        continue;
+      }
+
+      // 3. Check for charge overrides (discounts or surcharges)
+      const chargeOverride = await db.chargeOverride.findFirst({
+        where: {
+          tenantId,
+          subscriberId: sub.id,
+          status: "active",
+          startDate: { lte: now },
+          OR: [{ endDate: null }, { endDate: { gt: now } }],
+        },
+      });
+
+      // Calculate base price
+      let basePrice = sub.plan!.price.toNumber();
+
+      // Apply charge override
+      if (chargeOverride) {
+        if (chargeOverride.valueType === "percentage") {
+          if (chargeOverride.type === "discount") {
+            basePrice = basePrice * (1 - chargeOverride.value / 100);
+          } else {
+            basePrice = basePrice * (1 + chargeOverride.value / 100);
+          }
+        } else {
+          // flat amount
+          if (chargeOverride.type === "discount") {
+            basePrice = Math.max(0, basePrice - chargeOverride.value);
+          } else {
+            basePrice = basePrice + chargeOverride.value;
+          }
+        }
+      }
+
       if (!dryRun) {
         const invoice = await createInvoice({
           tenantId,
@@ -331,8 +385,8 @@ export async function runBilling(
             {
               description: `${sub.plan!.name} — ${sub.plan!.billingCycle} subscription`,
               quantity: 1,
-              unitPrice: sub.plan!.price.toNumber(),
-              amount: sub.plan!.price.toNumber(),
+              unitPrice: basePrice,
+              amount: basePrice,
             },
           ],
           taxRate: sub.plan!.taxRate.toNumber(),
@@ -344,8 +398,7 @@ export async function runBilling(
 
         totalAmount += invoice.total.toNumber();
       } else {
-        // Dry run: just count
-        totalAmount += sub.plan!.price.toNumber() * (1 + sub.plan!.taxRate.toNumber());
+        totalAmount += basePrice * (1 + sub.plan!.taxRate.toNumber());
       }
       generated++;
     } catch (err) {
@@ -356,7 +409,50 @@ export async function runBilling(
     }
   }
 
-  return { generated, skipped, errors, totalAmount };
+  // 4. Auto-suspend subscribers with overdue invoices past grace period
+  if (!dryRun) {
+    const overdueSubs = await db.invoice.findMany({
+      where: {
+        tenantId,
+        status: "overdue",
+        dueDate: { lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) }, // 7 days overdue
+      },
+      select: { subscriberId: true, number: true },
+      distinct: ["subscriberId"],
+    });
+
+    for (const overdue of overdueSubs) {
+      if (!overdue.subscriberId) continue;
+
+      // Check if subscriber has a post-billing grace period still active
+      const postGrace = await db.gracePeriod.findFirst({
+        where: {
+          tenantId,
+          subscriberId: overdue.subscriberId,
+          type: "post_billing",
+          status: "active",
+          endDate: { gt: now },
+        },
+      });
+
+      if (!postGrace) {
+        // No grace — auto-suspend
+        const sub = await db.subscriber.findFirst({
+          where: { id: overdue.subscriberId, tenantId, status: "active" },
+          select: { id: true, username: true },
+        });
+
+        if (sub) {
+          // Use the transition function which handles RADIUS CoA
+          const { transitionSubscriberStatus } = await import("@/core/repositories/subscriber");
+          await transitionSubscriberStatus(tenantId, sub.id, "suspended" as any, issuedBy);
+          suspended++;
+        }
+      }
+    }
+  }
+
+  return { generated, skipped, suspended, errors, totalAmount };
 }
 
 export async function getBillingStats(tenantId: string) {

@@ -168,6 +168,50 @@ export async function createSubscriber(
       status: input.status ?? SUBSCRIBER_STATUS.PENDING,
     },
     include: SUBSCRIBER_INCLUDE,
+  }).then(async (subscriber) => {
+    // === INDUSTRY STANDARD: Sync to FreeRADIUS tables ===
+    // Create radcheck entry with Cleartext-Password (or Crypt-Password if hashed)
+    if (input.password) {
+      await db.radCheck.create({
+        data: {
+          username,
+          attribute: "Cleartext-Password",
+          op: ":=",
+          value: input.password,
+        },
+      });
+    }
+
+    // Create radusergroup mapping (subscriber → plan group)
+    if (input.planId) {
+      const plan = await db.plan.findFirst({
+        where: { id: input.planId, tenantId: input.tenantId },
+        select: { name: true },
+      });
+      if (plan) {
+        const groupName = `plan-${plan.name.toLowerCase().replace(/\s+/g, "-")}`;
+        await db.radUserGroup.create({
+          data: {
+            username,
+            groupname: groupName,
+            priority: 1,
+          },
+        }).catch(() => {}); // Ignore if group already exists for this user
+      }
+    }
+
+    // Create ActionHistory
+    await db.actionHistory.create({
+      data: {
+        tenantId: input.tenantId,
+        subscriberId: subscriber.id,
+        action: "plan_assign",
+        performedBy: input.tenantId, // system
+        newValue: JSON.stringify({ status: subscriber.status, planId: input.planId, username }),
+      },
+    }).catch(() => {});
+
+    return subscriber;
   });
 }
 
@@ -202,7 +246,11 @@ export async function updateSubscriber(
 
 /**
  * Transition a subscriber's status. Validates the transition.
- * Emits a state-change event for downstream consumers (RADIUS CoA, billing, notifications).
+ * INDUSTRY STANDARD: Performs real RADIUS actions on each transition:
+ *   - suspend → disable radcheck (Auth-Type := Reject) + CoA disconnect active sessions
+ *   - reactivate → re-enable radcheck (remove Auth-Type reject) + restore
+ *   - terminate → disable radcheck + disconnect all sessions + release IPs
+ * Also creates ActionHistory records, CoA events, and emits domain events.
  */
 export async function transitionSubscriberStatus(
   tenantId: string,
@@ -225,11 +273,107 @@ export async function transitionSubscriberStatus(
     );
   }
 
-  return db.subscriber.update({
+  const oldStatus = subscriber.status;
+
+  // === INDUSTRY STANDARD: Real RADIUS integration on lifecycle transitions ===
+  if (subscriber.username) {
+    if (newStatus === "suspended" || newStatus === "terminated") {
+      // 1. Disable RADIUS authentication: add Auth-Type := Reject to radcheck
+      //    This prevents future logins even without CoA
+      const existingReject = await db.radCheck.findFirst({
+        where: { username: subscriber.username, attribute: "Auth-Type", value: "Reject" },
+      });
+      if (!existingReject) {
+        await db.radCheck.create({
+          data: {
+            username: subscriber.username,
+            attribute: "Auth-Type",
+            op: ":=",
+            value: "Reject",
+          },
+        });
+      }
+
+      // 2. Disconnect all active RADIUS sessions via CoA
+      const activeSessions = await db.activeSession.findMany({
+        where: { subscriberId: id, status: "active" },
+        include: { nas: { select: { ipAddress: true, coaPort: true, sharedSecret: true } } },
+      });
+
+      for (const session of activeSessions) {
+        await db.coaEvent.create({
+          data: {
+            tenantId,
+            type: newStatus === "terminated" ? "session_disconnect" : "session_disconnect",
+            status: "requested",
+            subscriberId: id,
+            sessionId: session.sessionId,
+            nasIpAddress: session.nas.ipAddress,
+            coaPort: session.nas.coaPort,
+            attributes: JSON.stringify({ "Acct-Session-Id": session.sessionId }),
+            requestedBy: actorUserId,
+          },
+        });
+
+        // Move session to history
+        await db.sessionHistory.create({
+          data: {
+            tenantId,
+            sessionId: session.sessionId,
+            subscriberId: session.subscriberId,
+            nasId: session.nasId,
+            username: session.username,
+            nasIpAddress: session.nasIpAddress,
+            framedIpAddress: session.framedIpAddress,
+            callingStationId: session.callingStationId,
+            startTime: session.startTime,
+            stopTime: new Date(),
+            duration: Math.floor((Date.now() - session.startTime.getTime()) / 1000),
+            inputOctets: session.inputOctets,
+            outputOctets: session.outputOctets,
+            terminationCause: newStatus === "terminated" ? "Admin-Reset" : "User-Request",
+          },
+        });
+
+        // Delete active session
+        await db.activeSession.delete({ where: { id: session.id } });
+      }
+
+      // 3. For terminated: release static IP assignment if any
+      if (newStatus === "terminated") {
+        await db.ipAddress.updateMany({
+          where: { assignedTo: id, assignedType: "subscriber" },
+          data: { status: "available", assignedTo: null, assignedType: null, allocatedAt: null, allocatedBy: null },
+        });
+      }
+    } else if (newStatus === "active" && oldStatus === "suspended") {
+      // Reactivate: remove Auth-Type := Reject from radcheck
+      await db.radCheck.deleteMany({
+        where: { username: subscriber.username, attribute: "Auth-Type", value: "Reject" },
+      });
+    }
+  }
+
+  // Update subscriber status
+  const updated = await db.subscriber.update({
     where: { id },
     data: { status: newStatus },
     include: SUBSCRIBER_INCLUDE,
   });
+
+  // Create ActionHistory record
+  await db.actionHistory.create({
+    data: {
+      tenantId,
+      subscriberId: id,
+      action: newStatus === "active" ? "activate" : newStatus === "suspended" ? "suspend" : "terminate",
+      performedBy: actorUserId,
+      oldValue: JSON.stringify({ status: oldStatus }),
+      newValue: JSON.stringify({ status: newStatus }),
+    },
+  });
+
+  return updated;
 }
 
 export async function deleteSubscriber(

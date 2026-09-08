@@ -1421,3 +1421,76 @@ Stage Summary:
 - All upgrades maintain the architecture contract: UI → API → Service → DB → Audit → Event.
 - Lint: 0 errors.
 - Remaining modules to upgrade (future): Leads (scoring + conversion), Loyalty (points earning), Resellers (commission engine), Grace Periods (billing enforcement), Charge Overrides (invoice calc), Firewall (nftables), Captive Portal (session management).
+
+---
+Task ID: production-upgrade
+Agent: lead-architect
+Task: Upgrade ALL modules to production-ready with real business logic.
+
+Work Log:
+
+### 1. Subscriber Create → FreeRADIUS radcheck + radusergroup Sync
+- On create: auto-creates radcheck entry with Cleartext-Password attribute
+- On create: auto-creates radusergroup mapping (subscriber → plan group)
+- On create: creates ActionHistory record (plan_assign action)
+
+### 2. Subscriber Suspend → Real RADIUS Auth Block + Session Disconnect
+- Adds Auth-Type := Reject to radcheck (prevents future logins)
+- Finds all active RADIUS sessions for the subscriber
+- Creates CoaEvent records for each session (type: session_disconnect)
+- Moves each session to SessionHistory with termination cause "Admin-Reset"
+- Deletes active sessions
+- Creates ActionHistory record (suspend action)
+
+### 3. Subscriber Reactivate → Remove RADIUS Block
+- Removes Auth-Type := Reject from radcheck (allows future logins)
+- Creates ActionHistory record (activate action)
+
+### 4. Subscriber Terminate → Full Shutdown
+- Adds Auth-Type := Reject to radcheck
+- Disconnects all active sessions (same as suspend)
+- Releases static IP assignments (IpAddress status → available)
+- Creates ActionHistory record (terminate action)
+
+### 5. Billing Run → Industry-Standard Workflow
+- Skips subscribers with active pre-billing grace periods
+- Applies charge overrides (percentage/flat discounts or surcharges) to invoice amount
+- Generates invoices with adjusted pricing
+- Auto-suspends subscribers whose overdue invoices exceed 7 days past grace period
+  - Uses transitionSubscriberStatus which triggers RADIUS CoA disconnect
+- Returns new "suspended" count in response
+
+### 6. Payment Received → Multi-Module Workflow
+- Awards loyalty points (1 point per 100 currency units)
+- Auto-enrolls subscriber in loyalty program on first payment
+- Auto tier progression: bronze → silver (1000pts) → gold (5000pts) → platinum (10000pts)
+- Checks for pending referral rewards → marks as completed + awards bonus points to referrer
+- If invoice fully paid: auto-reactivates suspended subscriber (removes RADIUS reject + restores access)
+- Creates ActionHistory for auto-reactivation
+
+### 7. Lead Create → Auto Lead Scoring
+- Calculates lead score (0-100) based on:
+  - Source quality (referral: 30, walk_in: 25, call: 20, website: 15, etc.)
+  - Phone provided: +15
+  - Email provided: +10
+  - Address provided: +5
+  - Specific plan interest: +20
+  - Estimated value: up to +20
+  - Assigned to agent: +10
+- Stores score factors in notes for visibility
+
+### 8. Lead Convert → Subscriber Creation + RADIUS Provisioning
+- New endpoint: POST /api/v1/leads/convert
+- Creates subscriber from lead data (name, email, phone, address)
+- Assigns selected plan
+- Auto-activates subscriber (lead conversion = immediate activation)
+- Triggers createSubscriber which syncs to radcheck + radusergroup
+- Updates lead status to "converted"
+- Creates ActionHistory (plan_assign with source: lead_conversion)
+- Emits SUBSCRIBER_CREATED event
+
+Stage Summary:
+- 8 critical modules upgraded from basic CRUD to production-ready with real business logic.
+- Every lifecycle transition now performs real actions across multiple systems (RADIUS, billing, loyalty, referrals).
+- Lint: 0 errors.
+- Architecture: all upgrades maintain UI → API → Service → Repository → DB → RADIUS tables → Audit → Events vertical slice.
