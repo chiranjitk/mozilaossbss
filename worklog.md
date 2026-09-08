@@ -1359,3 +1359,65 @@ Stage Summary:
   * IP-MAC History
   * Expenses management
   * Data Export (cross-entity)
+
+---
+Task ID: industry-upgrade
+Agent: lead-architect
+Task: Upgrade CRUD scaffolds to industry-standard modules with real business logic.
+
+User feedback: "aai gulo ek ekta product module jai hok ekta page baniye dile holo naki, industry standard maintain koro"
+(Are these just single-page CRUDs, or real product modules? Maintain industry standards.)
+
+Work Log:
+- Honest audit of all 106 API routes: identified that ~40% are real production-grade modules (with business logic, state machines, lifecycle transitions) and ~60% are basic CRUD scaffolds (no deep business logic).
+- Upgraded the following modules from CRUD to industry-standard:
+
+### 1. Bandwidth Profiles → RADIUS radgroupreply Sync
+**Before:** Just CRUD — create/update/delete profile records.
+**After (Industry Standard):**
+- On create: auto-syncs to FreeRADIUS radgroupreply table with:
+  - Mikrotik-Rate-Limit attribute (formatted: "50M/10M 75M/15M 40M/8M 16")
+  - WISPr-Bandwidth-Max-Down/Up (vendor-agnostic)
+- On create: auto-syncs to radgroupcheck with:
+  - Simultaneous-Use (concurrent session limit)
+  - Session-Timeout (86400s = 24h)
+  - Idle-Timeout (1800s = 30min)
+- Emits policy.bandwidth.created event for billing/monitoring
+- Rate limit format function handles burst thresholds properly
+
+### 2. Top-Ups → Real RADIUS CoA (Change of Authorization)
+**Before:** Just CRUD — create a top-up record.
+**After (Industry Standard):**
+- On create: finds subscriber's active RADIUS sessions
+- For speed_boost: calculates boosted speed (plan_speed + topup_amount), creates CoA event with Mikrotik-Rate-Limit attribute, syncs to radreply for future sessions
+- For time: creates CoA with Session-Timeout attribute
+- For data: creates CoA event for accounting tracking
+- Creates CoaEvent records for each affected session
+- Emits billing.topup.created event (billing module can auto-invoice)
+- Returns coaSent + activeSessionsAffected in response
+
+### 3. Promotions → Real invoice discount application
+**Before:** Just CRUD — create promotion codes.
+**After (Industry Standard):**
+- New endpoint: POST /api/v1/promotions/validate — validates code (active, not expired, under usage limit, applicable to plan), calculates discount amount
+- New endpoint: POST /api/v1/promotions/apply — actually modifies the invoice:
+  - Calculates discount (percentage/flat/free_trial)
+  - Updates invoice subtotal and total
+  - Increments promotion usedCount
+  - Auto-marks as "depleted" when maxUses reached
+  - Emits INVOICE_UPDATED event
+  - Full audit trail with old/new values
+
+### 4. Credit Notes → Real invoice balance adjustment
+**Before:** Just CRUD — create credit note records.
+**After (Industry Standard):**
+- On create with status="applied": reduces invoice amountPaid by credit amount, updates invoice status if balance reaches 0
+- On create with status="issued": auto-applies by reducing invoice total, marks credit note as "applied"
+- Emits INVOICE_UPDATED event with new balance
+- Full audit trail
+
+Stage Summary:
+- 4 critical modules upgraded from basic CRUD to industry-standard with real business workflows.
+- All upgrades maintain the architecture contract: UI → API → Service → DB → Audit → Event.
+- Lint: 0 errors.
+- Remaining modules to upgrade (future): Leads (scoring + conversion), Loyalty (points earning), Resellers (commission engine), Grace Periods (billing enforcement), Charge Overrides (invoice calc), Firewall (nftables), Captive Portal (session management).

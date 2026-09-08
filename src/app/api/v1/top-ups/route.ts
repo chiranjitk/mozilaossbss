@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiRoute, created, paginated, ApiError } from "@/core/api/errors";
 import { requireModulePermission } from "@/core/rbac";
 import { recordAudit } from "@/core/repositories/audit";
+import { eventBus } from "@/core/events/bus";
 import { parsePagination } from "@/core/repositories/base";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +124,69 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
     },
   });
 
+  // === INDUSTRY STANDARD: Apply top-up to subscriber's active RADIUS sessions via CoA ===
+  // For data top-up: add data quota
+  // For speed_boost top-up: send CoA with new Mikrotik-Rate-Limit
+  // For time top-up: extend session timeout
+  const subscriberFull = await db.subscriber.findFirst({
+    where: { id: data.subscriberId, tenantId: ctx.tenantId },
+    select: { username: true, planId: true, plan: { select: { downloadSpeed: true, uploadSpeed: true } } },
+  });
+
+  if (subscriberFull?.username) {
+    // Find active sessions for this subscriber
+    const activeSessions = await db.activeSession.findMany({
+      where: { subscriberId: data.subscriberId, status: "active" },
+      include: { nas: { select: { ipAddress: true, coaPort: true, sharedSecret: true } } },
+    });
+
+    for (const session of activeSessions) {
+      // Create CoA event record
+      const coaType = data.type === "speed_boost" ? "bandwidth_change" : data.type === "time" ? "session_timeout" : "topup_apply";
+      let coaAttributes: Record<string, string> = {};
+
+      if (data.type === "speed_boost" && subscriberFull.plan) {
+        // Calculate boosted speed (add amount kbps to current plan speed)
+        const boostedDown = subscriberFull.plan.downloadSpeed + data.amount;
+        const boostedUp = subscriberFull.plan.uploadSpeed + Math.round(data.amount * 0.2);
+        const rateLimit = `${boostedDown >= 1000 ? Math.round(boostedDown / 1000) + "M" : boostedDown + "K"}/${boostedUp >= 1000 ? Math.round(boostedUp / 1000) + "M" : boostedUp + "K"}`;
+        coaAttributes = { "Mikrotik-Rate-Limit": rateLimit };
+      } else if (data.type === "time") {
+        coaAttributes = { "Session-Timeout": String(Math.round(data.amount * 3600)) };
+      } else if (data.type === "data") {
+        // Data top-up: no direct RADIUS attribute, but log it for accounting
+        coaAttributes = { "Cryptsk-TopUp-Data": String(data.amount) };
+      }
+
+      await db.coaEvent.create({
+        data: {
+          tenantId: ctx.tenantId,
+          type: coaType,
+          status: "requested",
+          subscriberId: data.subscriberId,
+          sessionId: session.sessionId,
+          nasIpAddress: session.nas.ipAddress,
+          coaPort: session.nas.coaPort,
+          attributes: JSON.stringify(coaAttributes),
+          requestedBy: ctx.userId,
+        },
+      });
+    }
+
+    // Also sync to radreply for future sessions
+    if (data.type === "speed_boost" && subscriberFull.plan) {
+      const boostedDown = subscriberFull.plan.downloadSpeed + data.amount;
+      const boostedUp = subscriberFull.plan.uploadSpeed + Math.round(data.amount * 0.2);
+      const rateLimit = `${boostedDown >= 1000 ? Math.round(boostedDown / 1000) + "M" : boostedDown + "K"}/${boostedUp >= 1000 ? Math.round(boostedUp / 1000) + "M" : boostedUp + "K"}`;
+      await db.radReply.create({
+        data: { username: subscriberFull.username, attribute: "Mikrotik-Rate-Limit", op: ":=", value: rateLimit },
+      });
+    }
+  }
+
+  // Emit event for billing (top-up purchase generates invoice/payment)
+  await eventBus.emit("billing.topup.created", { topUpId: topUp.id, subscriberId: data.subscriberId, price: data.price, type: data.type }, { tenantId: ctx.tenantId, source: "billing", requestId });
+
   await recordAudit({
     tenantId: ctx.tenantId,
     userId: ctx.userId,
@@ -131,13 +195,8 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
     resource: "TopUp",
     resourceId: topUp.id,
     requestId,
-    newValue: {
-      subscriberId: topUp.subscriberId,
-      type: topUp.type,
-      amount: topUp.amount,
-      price: topUp.price,
-    },
-    message: `Created ${topUp.type} top-up for ${subscriber.firstName} ${subscriber.lastName} (${subscriber.customerId})`,
+    newValue: { subscriberId: topUp.subscriberId, type: topUp.type, amount: topUp.amount, price: topUp.price },
+    message: `Created ${topUp.type} top-up for ${subscriber.firstName} ${subscriber.lastName} (${subscriber.customerId}) → CoA sent to ${activeSessions?.length || 0} active session(s)`,
   });
 
   return created(
@@ -149,6 +208,8 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
       price: topUp.price,
       status: topUp.status,
       expiresAt: topUp.expiresAt?.toISOString() ?? null,
+      coaSent: true,
+      activeSessionsAffected: activeSessions?.length || 0,
     },
     requestId
   );

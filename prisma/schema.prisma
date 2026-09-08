@@ -94,6 +94,18 @@ model Tenant {
   topUps TopUp[]
   chargeOverrides ChargeOverride[]
   creditNotes CreditNote[]
+  olts Olt[]
+  splitters Splitter[]
+  ipsRules IpsRule[]
+  ipsAlerts IpsAlert[]
+  ndpiRules NdpiRule[]
+  vpnPeers VpnPeer[]
+  ddosRules DdosRule[]
+  wanLinks WanLink[]
+  enterpriseAuthConfigs EnterpriseAuthConfig[]
+  wifiOffloadPeers WifiOffloadPeer[]
+  knowledgeBase KnowledgeBase[]
+  expenses Expense[]
 }
 
 // =====================================================================
@@ -1331,6 +1343,397 @@ model CreditNote {
 
   @@index([tenantId, status])
   @@index([invoiceId])
+}
+
+// =====================================================================
+// FreeRADIUS NATIVE TABLES (managed by RADIUS worker directly)
+// =====================================================================
+
+model RadCheck {
+  id          Int      @id @default(autoincrement())
+  username    String
+  attribute   String
+  op          String   @default(":=")
+  value       String
+  createdAt   DateTime @default(now())
+
+  @@index([username])
+  @@index([attribute, value])
+}
+
+model RadReply {
+  id          Int      @id @default(autoincrement())
+  username    String
+  attribute   String
+  op          String   @default("=")
+  value       String
+  createdAt   DateTime @default(now())
+
+  @@index([username])
+}
+
+model RadGroupCheck {
+  id          Int      @id @default(autoincrement())
+  groupname   String
+  attribute   String
+  op          String   @default(":=")
+  value       String
+  createdAt   DateTime @default(now())
+
+  @@index([groupname])
+  @@index([groupname, attribute])
+}
+
+model RadGroupReply {
+  id          Int      @id @default(autoincrement())
+  groupname   String
+  attribute   String
+  op          String   @default("=")
+  value       String
+  createdAt   DateTime @default(now())
+
+  @@index([groupname])
+  @@unique([groupname, attribute])
+}
+
+model RadUserGroup {
+  id          Int      @id @default(autoincrement())
+  username    String
+  groupname   String
+  priority    Int      @default(1)
+
+  @@index([username])
+  @@index([groupname])
+  @@unique([username, groupname])
+}
+
+model RadAcct {
+  radacctid        Int      @id @default(autoincrement())
+  acctsessionid    String
+  acctuniqueid     String   @unique
+  username         String   @default("")
+  realm            String   @default("")
+  nasipaddress     String
+  nasportid        String   @default("")
+  nasporttype      String   @default("")
+  acctstarttime    DateTime
+  acctupdatetime   DateTime @default(now())
+  acctstoptime     DateTime?
+  acctinterval     Int      @default(0)
+  acctsessiontime  Int      @default(0)
+  acctauthentic    String   @default("")
+  connectinfoStart String   @default("")
+  connectinfoStop  String   @default("")
+  acctinputoctets  BigInt   @default(0)
+  acctoutputoctets BigInt   @default(0)
+  calledstationid  String   @default("")
+  callingstationid String   @default("")
+  acctterminatecause String @default("")
+  servicetype      String   @default("")
+  framedprotocol   String   @default("")
+  framedipaddress  String   @default("")
+  createdAt        DateTime @default(now())
+
+  @@index([username])
+  @@index([acctsessionid])
+  @@index([nasipaddress])
+  @@index([acctstarttime])
+  @@index([acctstoptime])
+  @@index([framedipaddress])
+  @@index([callingstationid])
+}
+
+// =====================================================================
+// FTTH/GPON — OLT management, ports, splitters
+// =====================================================================
+
+model Olt {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  ipAddress     String
+  vendor        String   @default("generic") // zte | huawei | fiberhome | vsol | bdcom | generic
+  model         String?
+  port          Int      @default(161)
+  community     String   @default("public")
+  snmpVersion   String   @default("v2c")
+  status        String   @default("active") // active | offline | maintenance
+  totalPorts    Int      @default(0)
+  usedPorts     Int      @default(0)
+  location      String?
+  firmware      String?
+  uptime        Int?     // seconds
+  lastSeenAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ports         OltPort[]
+  @@unique([tenantId, ipAddress])
+  @@index([tenantId, status])
+}
+
+model OltPort {
+  id            String   @id @default(cuid())
+  oltId         String
+  olt           Olt      @relation(fields: [oltId], references: [id], onDelete: Cascade)
+  portNumber    Int
+  type          String   @default("pon") // pon | ge | xe
+  status        String   @default("down") // up | down | disabled | error
+  adminStatus   String   @default("enabled") // enabled | disabled
+  rxPower       Float?   // dBm
+  txPower       Float?
+  temperature   Float?
+  connectedOnu  String?
+  vlanId        Int?
+  description   String?
+  lastCheckedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([oltId, status])
+  @@unique([oltId, portNumber])
+}
+
+model Splitter {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  type          String   @default("1:8") // 1:2 | 1:4 | 1:8 | 1:16 | 1:32 | 1:64
+  location      String?
+  oltId         String?
+  portNumber    Int?
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+// =====================================================================
+// IPS / nDPI — Intrusion prevention, app awareness
+// =====================================================================
+
+model IpsRule {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  action        String   @default("block") // block | alert | rate_limit
+  protocol      String?  // tcp | udp | icmp | any
+  srcAddress    String?
+  dstAddress    String?
+  dstPort       String?
+  signature     String?  // pattern to match
+  rateLimit     Int?     // kbps for rate_limit action
+  enabled       Boolean  @default(true)
+  hits          Int      @default(0)
+  lastHitAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+  alerts IpsAlert[]
+}
+
+model IpsAlert {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ruleId        String?
+  rule          IpsRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  severity      String   @default("warning") // info | warning | error | critical
+  sourceIp      String
+  destIp        String
+  protocol      String?
+  description   String
+  action        String   @default("alerted") // alerted | blocked | rate_limited
+  blocked       Boolean  @default(false)
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, severity, timestamp])
+  @@index([sourceIp])
+}
+
+model NdpiRule {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appName       String   // e.g. "YouTube", "Netflix", "BitTorrent"
+  category      String   // e.g. "Streaming", "P2P", "Social"
+  action        String   @default("allow") // allow | block | rate_limit | shape
+  rateLimit     Int?     // kbps
+  scope         String   @default("global") // global | plan | subscriber | ip_range
+  scopeValue    String?  // plan ID, subscriber ID, or IP range
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+  @@index([category])
+}
+
+// =====================================================================
+// VPN Server (WireGuard) + DDoS Protection + MultiWAN
+// =====================================================================
+
+model VpnPeer {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  publicKey     String   @unique
+  privateKey    String?  // encrypted
+  allowedIps    String   // CIDR
+  endpoint      String?  // IP:port
+  persistentKeepalive Int? @default(25)
+  enabled       Boolean  @default(true)
+  status        String   @default("inactive") // active | inactive | error
+  lastHandshake DateTime?
+  rxBytes       BigInt   @default(0)
+  txBytes       BigInt   @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+}
+
+model DdosRule {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  type          String   @default("syn_flood") // syn_flood | udp_flood | icmp_flood | slowloris | volumetric
+  action        String   @default("block") // block | rate_limit | challenge
+  threshold     Int      @default(100) // packets per second
+  windowSeconds Int      @default(10)
+  enabled       Boolean  @default(true)
+  triggers      Int      @default(0)
+  lastTriggered DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+}
+
+model WanLink {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  interface     String   // e.g. eth0, pppoe-wan1
+  isp           String?
+  ipAddress     String?
+  gateway       String?
+  downloadSpeed Int?     // kbps
+  uploadSpeed   Int?     // kbps
+  priority      Int      @default(1) // 1 = primary, 2 = backup
+  status        String   @default("up") // up | down | degraded
+  failoverEnabled Boolean @default(true)
+  rxBytes       BigInt   @default(0)
+  txBytes       BigInt   @default(0)
+  latency       Float?   // ms
+  packetLoss    Float?   // percent
+  lastCheckedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([priority])
+}
+
+// =====================================================================
+// Enterprise Auth (LDAP/AD) + WiFi Offload (Diameter)
+// =====================================================================
+
+model EnterpriseAuthConfig {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  type          String   @default("ldap") // ldap | ad | radius_proxy
+  serverUrl     String   // ldap://host:389 or ldaps://host:636
+  bindDn        String   // CN=admin,DC=example,DC=com
+  bindPassword  String   // encrypted
+  searchBase    String   // OU=users,DC=example,DC=com
+  searchFilter  String   @default("(uid={username})")
+  groupAttribute String  @default("memberOf")
+  enabled       Boolean  @default(true)
+  testStatus    String   @default("untested") // untested | success | failure
+  lastTestedAt  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, name])
+}
+
+model WifiOffloadPeer {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  realm         String   @unique
+  type          String   @default("gy") // gy | gx | swa | s6b
+  serverAddress String
+  serverPort    Int      @default(3868)
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+// =====================================================================
+// Deployment Presets + Knowledge Base + Expenses
+// =====================================================================
+
+model DeploymentPreset {
+  id            String   @id @default(cuid())
+  name          String   @unique // isp | education | hospital | hotel | campus | enterprise | full
+  displayName   String
+  description   String?
+  modules       String   // JSON array of module IDs to enable
+  config        String?  // JSON of preset-specific config
+  icon          String?
+  createdAt     DateTime @default(now())
+}
+
+model KnowledgeBase {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title         String
+  slug          String   @unique
+  content       String
+  category      String   @default("general") // general | billing | network | aaa | troubleshooting | faq
+  tags          String?  // JSON array
+  published     Boolean  @default(true)
+  views         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, category, published])
+}
+
+model Expense {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  description   String
+  amount        Float
+  currency      String   @default("USD")
+  category      String   @default("operational") // operational | salary | equipment | utility | rent | marketing | other
+  date          DateTime @default(now())
+  notes         String?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, category, date])
+  @@index([date])
 }
 
 // =====================================================================

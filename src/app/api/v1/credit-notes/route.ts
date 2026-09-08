@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiRoute, created, paginated, ApiError } from "@/core/api/errors";
 import { requireModulePermission } from "@/core/rbac";
 import { recordAudit } from "@/core/repositories/audit";
+import { eventBus, EVENTS } from "@/core/events/bus";
 import { parsePagination } from "@/core/repositories/base";
 
 export const dynamic = "force-dynamic";
@@ -134,6 +135,55 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
     },
   });
 
+  // === INDUSTRY STANDARD: Actually adjust invoice balance ===
+  // When a credit note is issued, reduce the invoice's amountPaid by the credit amount
+  // (effectively a refund/adjustment). If balance reaches 0, mark invoice as paid.
+  const invoiceFull = await db.invoice.findFirst({
+    where: { id: data.invoiceId, tenantId: ctx.tenantId },
+  });
+
+  if (invoiceFull && data.status === "applied") {
+    const newAmountPaid = Math.max(0, invoiceFull.amountPaid.toNumber() - data.amount);
+    const newBalance = invoiceFull.total.toNumber() - newAmountPaid;
+    const newStatus = newBalance <= 0 ? "paid" : invoiceFull.status;
+
+    await db.invoice.update({
+      where: { id: data.invoiceId },
+      data: {
+        amountPaid: newAmountPaid,
+        status: newStatus,
+      },
+    });
+
+    await eventBus.emit(EVENTS.INVOICE_UPDATED, {
+      invoiceId: data.invoiceId,
+      creditNoteAmount: data.amount,
+      newBalance,
+      newStatus,
+    }, { tenantId: ctx.tenantId, source: "billing", requestId });
+  } else if (invoiceFull && data.status === "issued") {
+    // Auto-apply: immediately reduce the invoice total
+    const newTotal = invoiceFull.total.toNumber() - data.amount;
+    await db.invoice.update({
+      where: { id: data.invoiceId },
+      data: {
+        total: newTotal,
+      },
+    });
+
+    // Mark credit note as applied
+    await db.creditNote.update({
+      where: { id: note.id },
+      data: { status: "applied" },
+    });
+
+    await eventBus.emit(EVENTS.INVOICE_UPDATED, {
+      invoiceId: data.invoiceId,
+      creditNoteAmount: data.amount,
+      newTotal,
+    }, { tenantId: ctx.tenantId, source: "billing", requestId });
+  }
+
   await recordAudit({
     tenantId: ctx.tenantId,
     userId: ctx.userId,
@@ -142,13 +192,8 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
     resource: "CreditNote",
     resourceId: note.id,
     requestId,
-    newValue: {
-      invoiceId: note.invoiceId,
-      number: note.number,
-      amount: note.amount,
-      reason: note.reason,
-    },
-    message: `Issued credit note ${note.number} (${note.amount}) against invoice ${invoice.number}`,
+    newValue: { invoiceId: note.invoiceId, number: note.number, amount: note.amount, reason: note.reason },
+    message: `Issued credit note ${note.number} ($${note.amount}) against invoice ${invoice.number} → invoice total adjusted`,
   });
 
   return created(
@@ -159,6 +204,7 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
       amount: note.amount,
       status: note.status,
       issuedAt: note.issuedAt.toISOString(),
+      invoiceAdjusted: true,
     },
     requestId
   );

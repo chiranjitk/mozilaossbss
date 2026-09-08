@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiRoute, ok, created, paginated, ApiError } from "@/core/api/errors";
 import { requireModulePermission } from "@/core/rbac";
 import { recordAudit } from "@/core/repositories/audit";
+import { eventBus } from "@/core/events/bus";
 import { parsePagination } from "@/core/repositories/base";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,56 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
   if (existing) throw ApiError.duplicate("Profile", "name", data.name);
 
   const profile = await db.bandwidthProfile.create({ data: { tenantId: ctx.tenantId, ...data } });
-  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "bandwidth.create", module: "policy", resource: "BandwidthProfile", resourceId: profile.id, requestId, message: `Created bandwidth profile ${profile.name}` });
-  return created({ id: profile.id, name: profile.name, status: profile.status }, requestId);
+
+  // === INDUSTRY STANDARD: Sync to FreeRADIUS radgroupreply tables ===
+  // When a bandwidth profile is created, automatically create the corresponding
+  // RADIUS group reply attributes (Mikrotik-Rate-Limit, WISPr-Bandwidth-Max-Down/Up,
+  // Session-Timeout, Idle-Timeout, Simultaneous-Use)
+  const groupName = `plan-${profile.name.toLowerCase().replace(/\s+/g, "-")}`;
+  const rateLimit = formatRateLimit(profile.downloadSpeed, profile.uploadSpeed, profile.downloadBurst, profile.uploadBurst, profile.burstThreshold, profile.burstTime);
+
+  // Sync to radgroupreply
+  await db.radGroupReply.createMany({
+    data: [
+      { groupname: groupName, attribute: "Mikrotik-Rate-Limit", op: ":=", value: rateLimit },
+      { groupname: groupName, attribute: "WISPr-Bandwidth-Max-Down", op: ":=", value: String(profile.downloadSpeed) },
+      { groupname: groupName, attribute: "WISPr-Bandwidth-Max-Up", op: ":=", value: String(profile.uploadSpeed) },
+    ],
+    skipDuplicates: true,
+  });
+
+  // Sync to radgroupcheck
+  await db.radGroupCheck.createMany({
+    data: [
+      { groupname: groupName, attribute: "Simultaneous-Use", op: ":=", value: "1" },
+      { groupname: groupName, attribute: "Session-Timeout", op: ":=", value: "86400" },
+      { groupname: groupName, attribute: "Idle-Timeout", op: ":=", value: "1800" },
+    ],
+    skipDuplicates: true,
+  });
+
+  // Emit event for other modules (billing, monitoring)
+  await eventBus.emit("policy.bandwidth.created", { profileId: profile.id, groupName, rateLimit }, { tenantId: ctx.tenantId, source: "policy", requestId });
+
+  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "bandwidth.create", module: "policy", resource: "BandwidthProfile", resourceId: profile.id, requestId, message: `Created bandwidth profile ${profile.name} → synced to RADIUS group ${groupName}` });
+  return created({ id: profile.id, name: profile.name, status: profile.status, radiusGroup: groupName }, requestId);
 });
+
+/**
+ * Format Mikrotik-Rate-Limit string: "down/up burst-down/burst-up burst-threshold-down/up burst-time"
+ * Example: "51200K/10240K 76800K/15360K 40960K/8192K 16"
+ */
+function formatRateLimit(down: number, up: number, burstDown?: number, burstUp?: number, threshold?: number, burstTime?: number): string {
+  const downStr = formatKbps(down);
+  const upStr = formatKbps(up);
+  if (burstDown && burstUp && threshold && burstTime) {
+    return `${downStr}/${upStr} ${formatKbps(burstDown)}/${formatKbps(burstUp)} ${formatKbps(threshold)}/${formatKbps(threshold)} ${burstTime}`;
+  }
+  return `${downStr}/${upStr}`;
+}
+
+function formatKbps(kbps: number): string {
+  if (kbps >= 1000000) return `${(kbps / 1000000).toFixed(1)}G`;
+  if (kbps >= 1000) return `${Math.round(kbps / 1000)}M`;
+  return `${kbps}K`;
+}

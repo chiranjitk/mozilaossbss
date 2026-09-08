@@ -70,6 +70,7 @@ import {
   FileMinus,
   Gift,
   Award,
+  Database,
   type LucideIcon,
 } from "lucide-react";
 
@@ -142,6 +143,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   FileMinus,
   Gift,
   Award,
+  Database,
 };
 
 export function resolveIcon(name: string): LucideIcon {

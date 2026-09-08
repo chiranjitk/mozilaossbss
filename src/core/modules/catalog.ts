@@ -275,6 +275,13 @@ export const MODULE_CATALOG: CryptskModule[] = [
             href: "/aaa/attributes",
             permission: "aaa.nas.read",
           },
+          {
+            id: "radius-tables",
+            label: "FreeRADIUS Tables",
+            icon: "Database",
+            href: "/aaa/radius-tables",
+            permission: "aaa.session.read",
+          },
         ],
       },
     ],
