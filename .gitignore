@@ -103,6 +103,8 @@ prompt
 download/
 agent-ctx/
 screenshots/
+qa-screenshots/
+tool-results/
 .zscripts/
 .cursor/
 .cache/

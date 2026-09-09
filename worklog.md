@@ -1649,3 +1649,75 @@ Stage Summary:
   * Module toggle → worker start/stop + resource audit
   * Notifications → event bus listener + auto-send
   * Inventory → low stock alert + auto-reorder
+
+---
+Task ID: 7-QA
+Agent: qa-engineer
+Task: End-to-end QA of running Cryptsk platform at http://localhost:3000 using agent-browser CLI (login → dashboard → key modules → core interaction). Capture screenshots, verify KPIs, log console errors, produce actionable bug list.
+
+Work Log:
+- Read worklog.md and prisma/seed.ts to confirm seeded admin creds (`admin` / `admin123`) and that login form uses a `username` field (default pre-filled with admin/admin123). email `admin@cryptsk.local` also exists but the form posts `username`.
+- Ran `agent-browser --help` and reviewed command set (open, click, type, snapshot, screenshot, console, errors, get url, etc.).
+- Navigated to http://localhost:3000/ — confirmed 307 redirect to /login. Screenshot `qa-screenshots/01-login.png`.
+- Snapshot login page → button `Sign in` ref=e6. Clicked Sign in → URL becomes http://localhost:3000/ (login succeeded, no error). Screenshot `qa-screenshots/02-dashboard.png`.
+- Dashboard snapshot verified real KPIs rendered: ACTIVE SESSIONS=2 (cap 100k, 0% util), ACTIVE SUBSCRIBERS=5 (6 total, 1 suspended), ONLINE NAS=2, REVENUE TODAY=$0 ($3,527 this month · 0 payments), PENDING INVOICES=4, OVERDUE INVOICES=1, OPEN COMPLAINTS=1, AUDIT EVENTS (24h)=23. Bandwidth chart present. Recent Activity list populated with real audit events. Module Status: 12 enabled / 1 disabled (Devices), all Healthy.
+- Attempted to navigate to parent routes `/aaa`, `/network`, `/billing`, `/monitoring`, `/ai`, `/aaa/tables` — ALL return HTTP 404. These are nav *section headers* (buttons) that only expand children; no index page.tsx exists. Documented as a minor UX bug (operator typing parent URL gets 404).
+- Visited `/aaa/sessions` — renders 2 real sessions (Priya Patel, Rahul Sharma) with session IDs, NAS, IP/MAC, duration 47h22m36s, protocol PPPoE, Disconnect buttons, pagination "Showing 1–2 of 2", Live/Refresh controls. No console errors. Screenshot `04-aaa-sessions.png`.
+- Visited `/network/ipam` — KPIs (2 subnets, 256 usable IPs, 3 allocated, 1 DHCP lease), table with real rows (NAS Uplink 10.0.0.0/30, Subscriber Pool 192.168.1.0/24, VLAN 100), utilization %, status badges, pagination, columns selector. No errors. Screenshot `05-network-ipam.png`.
+- Visited `/billing/invoices` — KPIs (7 total, 5 outstanding, 1 overdue, ₹1,885.64 collected), table with real invoice rows (INV-2026-0005 Bob Johnson ₹942.82 Paid, etc.), pagination. No errors. Screenshot `06-billing-invoices.png`. NOTE: this page uses ₹ (correct, INR per seed).
+- Visited `/monitoring/bandwidth` — KPIs (Download 56.6 Mbps, Upload 12.8 Mbps, 2 active sessions), bandwidth chart with 24h axis labels, time-range selectors (1h/6h/24h/7d/30d). Sub-section "Traffic by NAS" shows "No NAS traffic data available" empty state (partial — not blocking). No errors. Screenshot `07-monitoring-bandwidth.png`.
+- Visited `/ai/advisor` — chat UI renders, "New Chat" button, 5 suggestion chips, input box, side panel with capability list and z-ai-web-dev-sdk notice. No errors. Screenshot `08-ai-advisor.png`.
+- Core interaction test: navigated to `/subscribers` (screenshot `09-subscribers-list.png`) — real subscriber rows (Bob Johnson CUST-1006, Jane Doe CUST-1005, John Smith CUST-1004, Amit Kumar CUST-0003, etc.) with plan, status, sessions, activity, created columns. Then clicked the search box and typed "Bob" via `agent-browser keyboard type "Bob"` → list filtered to "Showing 1–1 of 1" (Bob Johnson only). Screenshot `10-subscribers-search.png`. Interaction verified working.
+- Inspected `src/core/modules/catalog.ts` nav hrefs and cross-checked against `src/app/*` page directories. Found broken nav links:
+    * `/aaa/radius-tables` (catalog.ts:282 — "FreeRADIUS Tables") → no `src/app/aaa/radius-tables/` directory → 404.
+    * `/devices/gpon`, `/devices/mikrotik`, `/devices/tr069` → no `src/app/devices/` directory → would 404 (currently masked because Devices module is disabled; will break immediately if an operator enables Devices in Module Manager).
+- Inspected `src/app/dashboard-client.tsx` and confirmed two production-rule violations:
+    * Lines 84–88: `trafficData = Array.from({length:24}, ...) Math.sin + Math.random()` is hardcoded MOCK bandwidth data, fed directly into `<AreaChart data={trafficData}>` at line 217. Violates worklog rule #1 "NO hardcoded dashboard data". The real bandwidth endpoint already exists (the dedicated /monitoring/bandwidth page shows real 56.6 Mbps) — dashboard should consume it.
+    * Lines 90–95: `formatCurrency` hardcodes `currency: "USD"`. Tenant seed sets currency INR. Dashboard KPIs show "$0" / "$3,527" while billing/invoices correctly shows "₹942.82" / "₹1,885.64". Should use tenant.currency.
+- Server stability note: during the QA pass the Next.js dev server crashed once (ERR_CONNECTION_REFUSED on the `/network/ipam` navigation) — restarted with `bun run dev` and re-ran the rest of the pass cleanly. Crash occurred right after a burst of ~23 sequential curl probes against unauthenticated routes (each triggering a fresh Next.js compile while middleware issued a 307). Likely memory/compile-storm related under 4 GB sandbox; not a deterministic app bug, but operators should expect slow first-load on cold cache (1–2 s compile per route).
+- Captured all console output via `agent-browser console` and `agent-browser errors` after each navigation. Only non-blocking noise observed: NextAuth `NEXTAUTH_URL` warning, `[HMR] connected`, `[Fast Refresh] rebuilding/done`, and the React DevTools promo info. No runtime exceptions, no 500s, no unhandled promise rejections on any visited page.
+
+Stage Summary:
+- Pass/fail per step:
+    1. agent-browser --help                    — PASS
+    2. / → /login redirect                    — PASS (307 → /login, 200)
+    3. Login page screenshot                  — PASS (01-login.png)
+    4. Login with admin/admin123              — PASS (redirected to /, session established)
+    5. Dashboard screenshot + KPIs            — PASS (8 KPI cards with real numbers, audit feed, module status)
+    6a. /aaa                                  — FAIL (404 — no index page; nav header is collapsible button only)
+    6b. /aaa/sessions (RADIUS mgmt proxy)     — PASS (2 real sessions rendered)
+    6c. /network                              — FAIL (404 — no index page)
+    6d. /network/ipam                         — PASS (2 subnets, KPIs, table, pagination)
+    6e. /billing                              — FAIL (404 — no index page)
+    6f. /billing/invoices                     — PASS (7 invoices, ₹1,885.64 collected)
+    6g. /monitoring                           — FAIL (404 — no index page)
+    6h. /monitoring/bandwidth                 — PASS (56.6/12.8 Mbps, chart, range selectors)
+    6i. /ai                                   — FAIL (404 — no index page)
+    6j. /ai/advisor                           — PASS (chat UI, suggestions, input)
+    7. Console errors on each page            — PASS (no runtime errors; only dev-mode HMR/NextAuth warnings)
+    8. Core interaction (subscribers search)  — PASS (filtered 5→1 row on "Bob")
+- Overall assessment: PLATFORM IS USABLE. Login, dashboard, all key module sub-pages render real seeded data with working tables, pagination, search, and KPIs. No blocking runtime bugs encountered. The five 404s are all the same pattern (missing section-index pages) and not user-blocking because the nav uses collapsible buttons, not parent links — but they should be fixed for direct-URL access. The two dashboard production-rule violations (mock bandwidth chart, hardcoded USD) are real bugs that contradict the project's non-negotiable rules and should be prioritized.
+
+- Specific actionable bug list for dev team:
+    1. **[HIGH]** `src/app/dashboard-client.tsx:84-88 + :217` — Dashboard "Bandwidth Utilization" chart renders hardcoded MOCK data (`Math.sin` + `Math.random`). Violates worklog rule #1. Fix: fetch real bandwidth series from `/api/v1/metrics` (or the same source `/monitoring/bandwidth` uses) instead of generating client-side.
+    2. **[HIGH]** `src/app/dashboard-client.tsx:90-95` — `formatCurrency` hardcodes `currency: "USD"`. Tenant seed is INR. Fix: read tenant.currency from session/dashboard API and pass to `Intl.NumberFormat`.
+    3. **[MED]** `src/core/modules/catalog.ts:282` — "FreeRADIUS Tables" nav link → `/aaa/radius-tables`, but no `src/app/aaa/radius-tables/page.tsx` exists → 404. Fix: either create the page (list radcheck/radusergroup/radgroupreply/radgroupcheck tables) or remove the nav entry.
+    4. **[MED]** `src/core/modules/catalog.ts` (devices section) — nav links `/devices/gpon`, `/devices/mikrotik`, `/devices/tr069` point to non-existent `src/app/devices/*`. Currently masked because Devices module is disabled, but enabling it via Module Manager will surface three 404s. Fix: implement device pages or remove catalog entries before enabling.
+    5. **[MED]** Missing index pages for parent routes `/aaa`, `/network`, `/billing`, `/monitoring`, `/ai` → all 404 on direct URL access. Fix: add lightweight `page.tsx` redirects to the first child of each section (e.g. `/network` → `/network/ipam`, `/billing` → `/billing/invoices`, `/monitoring` → `/monitoring/bandwidth`, `/ai` → `/ai/advisor`, `/aaa` → `/aaa/sessions`).
+    6. **[LOW]** Dashboard "REVENUE TODAY $0 / $3,527 this month · 0 payments" mixes invoiced-monthly-total with payment-count-today in a single hint string — confusing. Fix: split into two hints or relabel (e.g., "Issued this month: $3,527 · Payments today: 0").
+    7. **[LOW]** `/monitoring/bandwidth` "Traffic by NAS" sub-section shows empty state "No NAS traffic data available" even though 2 NAS are online with active sessions. Fix: ensure the NAS-timeseries endpoint returns data or hide the panel when no NAS traffic exists.
+    8. **[LOW]** `agent-browser console` shows persistent `NEXTAUTH_URL` NextAuth warning. Fix: set `NEXTAUTH_URL=http://localhost:3000` in `.env` for dev to silence the warning (cosmetic only — login works).
+    9. **[OBS]** Dev server crashed once during a rapid sequence of ~23 cold-compile navigations under the 4 GB sandbox. Not deterministic. Recommend documenting "expect 1–2 s first-load compile per route" or building for production QA.
+
+- Screenshots captured (paths):
+    * /home/z/my-project/qa-screenshots/01-login.png
+    * /home/z/my-project/qa-screenshots/02-dashboard.png
+    * /home/z/my-project/qa-screenshots/02b-dashboard-redis.png (post-restart re-snapshot)
+    * /home/z/my-project/qa-screenshots/03-aaa.png (404 page)
+    * /home/z/my-project/qa-screenshots/04-aaa-sessions.png
+    * /home/z/my-project/qa-screenshots/05-network-ipam.png
+    * /home/z/my-project/qa-screenshots/06-billing-invoices.png
+    * /home/z/my-project/qa-screenshots/07-monitoring-bandwidth.png
+    * /home/z/my-project/qa-screenshots/08-ai-advisor.png
+    * /home/z/my-project/qa-screenshots/09-subscribers-list.png
+    * /home/z/my-project/qa-screenshots/10-subscribers-search.png

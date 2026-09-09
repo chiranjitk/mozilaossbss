@@ -19,6 +19,12 @@ export const GET = apiRoute(async (req: NextRequest, { requestId }) => {
   const states = await resolveModuleStates(ctx.tenantId);
   const enabledIds = new Set(states.filter((s) => s.enabled).map((s) => s.module.id));
 
+  // Fetch tenant locale/currency for client-side formatting
+  const tenantLocale = await db.tenant.findUnique({
+    where: { id: ctx.tenantId },
+    select: { currency: true, locale: true, timezone: true },
+  });
+
   // Run only the queries relevant to enabled modules — disabled modules cost ~0
   const [
     subscriberCount,
@@ -126,6 +132,9 @@ export const GET = apiRoute(async (req: NextRequest, { requestId }) => {
       id: ctx.tenantId,
       name: ctx.tenantName,
       slug: ctx.tenantSlug,
+      currency: tenantLocale?.currency ?? "USD",
+      locale: tenantLocale?.locale ?? "en",
+      timezone: tenantLocale?.timezone ?? "UTC",
     },
     user: {
       id: ctx.userId,
