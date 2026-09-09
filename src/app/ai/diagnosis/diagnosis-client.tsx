@@ -104,7 +104,7 @@ export function DiagnosisClient() {
         <MetricCard label="Active Sessions" value={String(h.activeSessions)} icon={Wifi} accent="brand" hint={`of 100,000 capacity`} />
         <MetricCard label="Active Subscribers" value={String(h.activeSubscribers)} icon={Users} hint={`${h.suspendedSubscribers} suspended`} />
         <MetricCard label="Overdue Invoices" value={String(h.overdueInvoices)} icon={AlertTriangle} accent={h.overdueInvoices > 0 ? "warning" : "success"} />
-        <MetricCard label="Revenue (24h)" value={`$${h.revenue24h?.toFixed(0) ?? 0}`} icon={DollarSign} accent="success" />
+        <MetricCard label="Revenue (24h)" value={`₹${h.revenue24h?.toFixed(0) ?? 0}`} icon={DollarSign} accent="success" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-5">

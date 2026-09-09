@@ -48,6 +48,19 @@ export const GET = apiRoute(async (req: NextRequest, { requestId }) => {
 
   const healthData = {
     timestamp: now.toISOString(),
+    activeSessions,
+    totalSubscribers,
+    activeSubscribers,
+    suspendedSubscribers,
+    overdueInvoices,
+    openComplaints,
+    openIncidents,
+    activeAlerts,
+    onlineNas,
+    totalNas,
+    recentSyslogErrors,
+    revenue24h: recentPayments._sum.amount?.toNumber() ?? 0,
+    // Backwards-compat nested view (kept for any external consumers)
     sessions: { active: activeSessions, capacity: 100000 },
     subscribers: { total: totalSubscribers, active: activeSubscribers, suspended: suspendedSubscribers },
     billing: { overdueInvoices, revenue24h: recentPayments._sum.amount?.toNumber() ?? 0 },

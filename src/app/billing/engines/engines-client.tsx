@@ -13,7 +13,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import {
@@ -453,6 +453,15 @@ function TaxTab() {
   const [state, setState] = useState("");
   const [calcAmount, setCalcAmount] = useState(1000);
   const [calcResult, setCalcResult] = useState<TaxResult | null>(null);
+
+  // Sync loaded tax settings into the form so the operator sees the persisted config.
+  useEffect(() => {
+    if (data) {
+      setJur(data.jurisdiction ?? "none");
+      setRate(data.ratePct ?? 0);
+      setState(data.tenantState ?? "");
+    }
+  }, [data]);
 
   const saveMut = useMutation({
     mutationFn: () => api("/api/v1/billing/tax", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jurisdiction: jur, ratePct: rate, tenantState: state || undefined }) }),
