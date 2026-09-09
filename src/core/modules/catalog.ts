@@ -553,6 +553,13 @@ export const MODULE_CATALOG: CryptskModule[] = [
             permission: "billing.run",
           },
           {
+            id: "billing-engines",
+            label: "Business Engines",
+            icon: "Cpu",
+            href: "/billing/engines",
+            permission: "billing.invoice.read",
+          },
+          {
             id: "vouchers",
             label: "Vouchers",
             icon: "Ticket",
