@@ -295,6 +295,11 @@ model Subscriber {
   username     String?  @unique // RADIUS username
   passwordHash String?  // RADIUS password (hashed)
   metadata     String?
+  // --- Billing engine fields ---
+  lastBilledAt DateTime? // last successful billing run for this subscriber
+  billingAnchorDate DateTime? // day-of-month anchor for cycle generation; defaults to createdAt
+  // --- Policy engine fields ---
+  policyOverrides String? // JSON: subscriber-level policy overrides (speed caps, cap override, fupPercent, etc.)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -307,6 +312,7 @@ model Subscriber {
   installations Installation[]
   collectionTasks CollectionTask[]
   churnPredictions ChurnPrediction[]
+  policyDecisions PolicyDecision[]
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
@@ -1993,4 +1999,27 @@ model DeviceAlert {
   @@index([deviceId, createdAt])
   @@index([tenantId, acknowledged])
   @@index([severity, acknowledged])
+}
+
+// =====================================================================
+// POLICY ENGINE — decision audit log
+// Every policy evaluation (auth-time, API-driven, or enforcement) can be
+// persisted here for compliance/traceability.
+// =====================================================================
+
+model PolicyDecision {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriberId  String?
+  subscriber    Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  username      String? // RADIUS username at evaluation time
+  context       String   @default("api") // auth | api | enforcement | coa | scheduled
+  decision      String   // allow | deny | allow_degraded
+  reason        String?  // human-readable primary reason
+  result        String   // full PolicyDecision JSON (effective policy)
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, subscriberId, createdAt])
+  @@index([tenantId, decision])
 }
