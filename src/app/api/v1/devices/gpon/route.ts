@@ -62,9 +62,11 @@ export const GET = apiRoute(async (req: NextRequest, { requestId }) => {
   );
 });
 
+const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+
 const createSchema = z.object({
   name: z.string().min(2).max(100),
-  ipAddress: z.string().ip(),
+  ipAddress: z.string().regex(IPV4, "Must be a valid IPv4 address"),
   vendor: z.enum(["zte", "huawei", "fiberhome", "vsol", "bdcom", "generic"]).default("generic"),
   model: z.string().max(100).optional(),
   location: z.string().max(200).optional(),
