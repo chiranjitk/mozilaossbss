@@ -1911,3 +1911,86 @@ model SystemInterface {
   @@index([tenantId, enabled])
   @@index([nasId])
 }
+
+// =====================================================================
+// DEVICE MANAGEMENT (Phase 6) — MikroTik / SNMP / TR-069 / GPON inventory
+// Adapter architecture per device family. Polling + alerts + topology.
+// =====================================================================
+
+model Device {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  type            String   @default("generic") // mikrotik | snmp | tr069 | gpon | generic
+  ipAddress       String
+  managementPort  Int      @default(8728) // REST API / SNMP / TR-069 / OLT mgr port
+  vendor          String?
+  model           String?
+  serialNumber    String?  @unique
+  firmwareVersion String?
+  status          String   @default("unmanaged") // online | offline | maintenance | unmanaged
+  location        String?
+  parentId        String?  // topology (e.g. OLT parent for an ONU)
+  parent          Device?  @relation("DeviceTopology", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Device[] @relation("DeviceTopology")
+  credentials     String?  // JSON — encrypted at-rest in production (KMS / vault)
+  snmpCommunity   String?
+  tr069Url        String?  // ACS Connection Request URL
+  lastSeenAt      DateTime?
+  lastPolledAt    DateTime?
+  latencyMs       Int?
+  uptime          Int      @default(0) // seconds since last boot
+  metadata        String?  // JSON
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  interfaces      DeviceInterface[]
+  alerts          DeviceAlert[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, type])
+  @@index([parentId])
+}
+
+model DeviceInterface {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   // e.g. ether1, ether2, wan1, pon1/0/1
+  type        String   @default("ethernet") // ethernet | wifi | pon | vlan | bridge
+  macAddress  String?
+  ipAddress   String?
+  rxBytes     BigInt   @default(0)
+  txBytes     BigInt   @default(0)
+  rxPackets   BigInt   @default(0)
+  txPackets   BigInt   @default(0)
+  status      String   @default("up") // up | down | unknown
+  speedMbps   Int?
+  lastUpdated DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([deviceId])
+  @@index([status])
+}
+
+model DeviceAlert {
+  id           String    @id @default(cuid())
+  deviceId     String
+  device       Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  tenantId     String
+  severity     String    @default("info") // info | warning | critical
+  message      String
+  metric       String?   // e.g. reachability, latency, packet_loss
+  value        String?
+  acknowledged Boolean   @default(false)
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+
+  @@index([deviceId, createdAt])
+  @@index([tenantId, acknowledged])
+  @@index([severity, acknowledged])
+}
