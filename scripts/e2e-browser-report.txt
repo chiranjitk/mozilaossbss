@@ -31,3 +31,9 @@ OK   /billing/credit-notes | url=http://localhost:3000/billing/credit-notes
 OK   /billing/engines | url=http://localhost:3000/billing/engines
 OK   /billing/grace-periods | url=http://localhost:3000/billing/grace-periods
 --- server restart at page #30 ---
+OK   /billing/invoices | url=http://localhost:3000/billing/invoices
+OK   /billing/promotions | url=http://localhost:3000/billing/promotions
+OK   /billing/run | url=http://localhost:3000/billing/run
+OK   /billing/top-ups | url=http://localhost:3000/billing/top-ups
+OK   /billing/vouchers | url=http://localhost:3000/billing/vouchers
+OK   /communication | url=http://localhost:3000/communication/templates
