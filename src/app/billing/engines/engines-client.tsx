@@ -456,13 +456,17 @@ function TaxTab() {
   const [calcResult, setCalcResult] = useState<TaxResult | null>(null);
 
   // Sync loaded tax settings into the form so the operator sees the persisted config.
-  useEffect(() => {
+  // Uses the "store info from previous render" pattern (React docs) instead of an
+  // effect, to avoid cascading renders.
+  const [lastLoaded, setLastLoaded] = useState<TaxSettings | null | undefined>(undefined);
+  if (data !== lastLoaded) {
+    setLastLoaded(data);
     if (data) {
       setJur(data.jurisdiction ?? "none");
       setRate(data.ratePct ?? 0);
       setState(data.tenantState ?? "");
     }
-  }, [data]);
+  }
 
   const saveMut = useMutation({
     mutationFn: () => api("/api/v1/billing/tax", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jurisdiction: jur, ratePct: rate, tenantState: state || undefined }) }),
