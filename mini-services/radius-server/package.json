@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Cryptsk AAA/RADIUS Access Gateway — real RADIUS server (RFC 2865/2866) over UDP",
   "scripts": {
-    "dev": "bun --hot index.ts",
-    "start": "bun index.ts"
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",
