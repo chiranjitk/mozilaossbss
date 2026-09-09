@@ -32,3 +32,9 @@ FAIL 000 /billing/invoices
 FAIL 000 /billing/promotions
 FAIL 000 /billing/run
 OK   200 /billing/top-ups
+OK   200 /billing/vouchers
+OK   307 /communication
+OK   200 /communication/rules
+OK   200 /communication/templates
+OK   307 /devices
+OK   200 /devices/gpon
