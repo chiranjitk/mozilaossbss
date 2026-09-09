@@ -63,3 +63,14 @@ OK   200 /network/ipam
 OK   200 /network/subnets
 OK   307 /operations
 --- restarting next-server (memory guard) at route #60 ---
+OK   200 /operations/agents
+OK   200 /operations/areas
+OK   200 /operations/complaints
+OK   200 /operations/incidents
+OK   200 /operations/installations
+OK   200 /operations/inventory
+OK   200 /operations/leads
+OK   200 /operations/loyalty
+OK   200 /operations/referrals
+OK   200 /operations/resellers
+OK   200 /operations/technicians
