@@ -8,3 +8,8 @@ OK   200 /aaa/logs
 OK   200 /aaa/nas
 OK   200 /aaa/proxy
 OK   200 /aaa/radius
+OK   200 /aaa/radius-tables
+OK   200 /aaa/sessions
+--- restarting next-server (memory guard) at route #12 ---
+OK   200 /admin/announcements
+OK   200 /admin/api-keys
