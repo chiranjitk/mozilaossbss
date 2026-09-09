@@ -56,3 +56,10 @@ OK   200 /monitoring/syslog
 OK   200 /monitoring/traffic
 OK   200 /monitoring/uptime
 OK   307 /network
+OK   200 /network/dhcp
+OK   200 /network/dns
+OK   200 /network/interfaces
+OK   200 /network/ipam
+OK   200 /network/subnets
+OK   307 /operations
+--- restarting next-server (memory guard) at route #60 ---
