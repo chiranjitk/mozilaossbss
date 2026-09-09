@@ -53,3 +53,7 @@ OK   /monitoring | url=http://localhost:3000/monitoring/bandwidth
 OK   /monitoring/alerts | url=http://localhost:3000/monitoring/alerts
 OK   /monitoring/bandwidth | url=http://localhost:3000/monitoring/bandwidth
 --- server restart at page #50 ---
+OK   /monitoring/syslog | url=http://localhost:3000/monitoring/syslog
+OK   /monitoring/traffic | url=http://localhost:3000/monitoring/traffic
+OK   /monitoring/uptime | url=http://localhost:3000/monitoring/uptime
+OK   /network | url=http://localhost:3000/network/ipam
