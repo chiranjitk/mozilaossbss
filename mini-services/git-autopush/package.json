@@ -1,0 +1,10 @@
+{
+  "name": "cryptsk-git-autopush",
+  "version": "1.0.0",
+  "description": "Cryptsk Git Auto-Push watcher — commits & pushes every change to GitHub automatically (hard rule)",
+  "scripts": {
+    "dev": "bun index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {}
+}
