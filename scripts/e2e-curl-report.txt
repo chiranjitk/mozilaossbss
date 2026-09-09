@@ -12,3 +12,9 @@ FAIL 000 /aaa/radius-tables
 OK   200 /aaa/sessions
 OK   200 /admin/announcements
 OK   200 /admin/api-keys
+OK   200 /admin/audit
+OK   200 /admin/backup
+OK   200 /admin/modules
+FAIL 000 /admin/roles
+FAIL 000 /admin/settings
+FAIL 000 /admin/users
