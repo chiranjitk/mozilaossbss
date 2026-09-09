@@ -79,3 +79,7 @@ FAIL 000 /policy/qos
 FAIL 000 /policy/time-access
 FAIL 000 /subscribers
 FAIL  /subscribers/[id]
+OK   200 /subscribers/batch
+
+SUMMARY: PASS=43 FAIL=39
+FAILED: /admin/announcements(000) /admin/api-keys(000) /admin/audit(000) /admin/backup(000) /admin/modules(000) /admin/roles(000) /admin/settings(000) /admin/users(000) /ai(000) /ai/advisor(000) /ai/churn(000) /ai/diagnosis(000) /billing(000) /billing/add-ons(000) /billing/charge-overrides(000) /billing/credit-notes(000) /billing/engines(000) /billing/grace-periods(000) /billing/invoices(000) /billing/promotions(000) /billing/run(000) /devices/snmp(500) /login(500) /network/dns(000) /network/interfaces(000) /network/ipam(000) /network/subnets(000) /operations(000) /operations/agents(000) /operations/areas(000) /operations/complaints(000) /payments/reconciliation(000) /plans(000) /policy/bandwidth(000) /policy/firewall(000) /policy/qos(000) /policy/time-access(000) /subscribers(000) /subscribers/[id]()
