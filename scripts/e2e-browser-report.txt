@@ -82,3 +82,8 @@ OK   /payments/reconciliation | url=http://localhost:3000/payments/reconciliatio
 OK   /plans | url=http://localhost:3000/plans
 OK   /policy/bandwidth | url=http://localhost:3000/policy/bandwidth
 OK   /policy/firewall | url=http://localhost:3000/policy/firewall
+OK   /policy/qos | url=http://localhost:3000/policy/qos
+OK   /policy/time-access | url=chrome-error://chromewebdata/
+OK   /subscribers | url=chrome-error://chromewebdata/
+OK   /subscribers/batch | url=chrome-error://chromewebdata/
+CONTINUATION: PASS=6 FAIL=0
