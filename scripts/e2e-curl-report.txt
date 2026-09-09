@@ -76,3 +76,10 @@ OK   200 /operations/resellers
 OK   200 /operations/technicians
 OK   200 /payments
 --- restarting next-server (memory guard) at route #72 ---
+OK   200 /payments/gateways
+OK   200 /payments/reconciliation
+OK   200 /plans
+OK   200 /policy/bandwidth
+OK   200 /policy/firewall
+OK   200 /policy/qos
+OK   200 /policy/time-access
