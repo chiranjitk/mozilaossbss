@@ -198,7 +198,7 @@ const formatSpeed = (kbps: number | null): string => {
 };
 
 const formatCurrency = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(n);
 
 export function Customer360Client({ subscriberId }: { subscriberId: string }) {
   const router = useRouter();
