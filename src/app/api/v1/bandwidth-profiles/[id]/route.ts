@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiRoute, ok, ApiError } from "@/core/api/errors";
 import { requireModulePermission } from "@/core/rbac";
 import { recordAudit } from "@/core/repositories/audit";
+import { removeGroupFromRadius } from "@/core/policy/radius-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,8 @@ export const DELETE = apiRoute(async (req: NextRequest, { requestId }) => {
   const existing = await db.bandwidthProfile.findFirst({ where: { id, tenantId: ctx.tenantId } });
   if (!existing) throw ApiError.notFound("Profile", id);
   await db.bandwidthProfile.delete({ where: { id } });
-  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "bandwidth.delete", module: "policy", resource: "BandwidthProfile", resourceId: id, requestId, message: `Deleted bandwidth profile ${existing.name}` });
+  // Clean up the synced RADIUS group rows (previously leaked on delete)
+  await removeGroupFromRadius(existing.name);
+  await recordAudit({ tenantId: ctx.tenantId, userId: ctx.userId, action: "bandwidth.delete", module: "policy", resource: "BandwidthProfile", resourceId: id, requestId, message: `Deleted bandwidth profile ${existing.name} + RADIUS group rows` });
   return ok({ deleted: true, id });
 });
