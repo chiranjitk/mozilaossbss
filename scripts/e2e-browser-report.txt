@@ -50,3 +50,6 @@ OK   /finance/revenue | url=http://localhost:3000/finance/revenue
 OK   /finance/tax | url=http://localhost:3000/finance/tax
 OK   /login | url=http://localhost:3000/login
 OK   /monitoring | url=http://localhost:3000/monitoring/bandwidth
+OK   /monitoring/alerts | url=http://localhost:3000/monitoring/alerts
+OK   /monitoring/bandwidth | url=http://localhost:3000/monitoring/bandwidth
+--- server restart at page #50 ---
