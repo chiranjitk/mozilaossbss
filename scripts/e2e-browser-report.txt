@@ -37,3 +37,8 @@ OK   /billing/run | url=http://localhost:3000/billing/run
 OK   /billing/top-ups | url=http://localhost:3000/billing/top-ups
 OK   /billing/vouchers | url=http://localhost:3000/billing/vouchers
 OK   /communication | url=http://localhost:3000/communication/templates
+OK   /communication/rules | url=http://localhost:3000/communication/rules
+OK   /communication/templates | url=http://localhost:3000/communication/templates
+OK   /devices | url=http://localhost:3000/devices/mikrotik
+OK   /devices/gpon | url=http://localhost:3000/devices/gpon
+--- server restart at page #40 ---
