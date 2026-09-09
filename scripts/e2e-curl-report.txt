@@ -2,3 +2,8 @@ OK   200 /
 OK   307 /aaa
 OK   200 /aaa/attributes
 OK   200 /aaa/captive-portal
+OK   200 /aaa/coa
+OK   200 /aaa/history
+FAIL 000 /aaa/logs
+FAIL 000 /aaa/nas
+FAIL 000 /aaa/proxy
