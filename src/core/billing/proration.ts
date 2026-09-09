@@ -148,49 +148,57 @@ export async function proratePlanChange(
   }
 
   if (netAdjustment < 0) {
-    // Issue a Credit Note for the refund credit
+    // Refund credit — issue a CreditNote against the current invoice.
+    // If no current invoice exists (edge case), create a stub invoice to
+    // anchor the credit note to, since CreditNote.invoiceId is required.
+    const anchorInvoiceId = currentInvoice?.id ?? (await createStubInvoice(tenantId, subscriber.id, now, newPlan, input.issuedBy)).id;
     const seq = await nextCreditNoteSeq(tenantId);
     const creditNote = await db.creditNote.create({
       data: {
         tenantId,
         number: `CN-${now.getFullYear()}-${String(seq).padStart(4, "0")}`,
-        subscriberId: subscriber.id,
-        invoiceId: currentInvoice?.id ?? null,
-        amount: new Prisma.Decimal(Math.abs(netAdjustment)),
-        currency,
+        invoiceId: anchorInvoiceId,
+        amount: Math.abs(netAdjustment),
         reason: `Proration: plan change ${oldPlan?.name ?? "—"} → ${newPlan.name} (${daysRemaining}/${daysInCycle} days)`,
         status: "issued",
         issuedBy: input.issuedBy,
       },
     });
     result.creditNoteNumber = creditNote.number;
-  } else if (netAdjustment > 0 && currentInvoice) {
-    // Add a line item to the current open invoice
-    const existingItems = currentInvoice.items
-      ? (JSON.parse(currentInvoice.items) as any[])
-      : [];
-    const lineItem = {
-      description: `Proration: ${newPlan.name} (${daysRemaining}/${daysInCycle} days)`,
-      quantity: 1,
-      unitPrice: netAdjustment,
-      amount: netAdjustment,
-    };
-    existingItems.push(lineItem);
-    const newSubtotal = round2(
-      currentInvoice.subtotal.toNumber() + netAdjustment
-    );
-    const newTax = round2(newSubtotal * (newPlan.taxRate.toNumber() / 100));
-    const newTotal = round2(newSubtotal + newTax);
-    await db.invoice.update({
-      where: { id: currentInvoice.id },
-      data: {
-        items: JSON.stringify(existingItems),
-        subtotal: new Prisma.Decimal(newSubtotal),
-        taxAmount: new Prisma.Decimal(newTax),
-        total: new Prisma.Decimal(newTotal),
-      },
-    });
-    result.invoiceLineItemId = currentInvoice.id;
+  } else if (netAdjustment > 0) {
+    // Subscriber owes more — add a line item to the current open invoice
+    // (or create a new one-time invoice if none exists yet this cycle).
+    let invoiceId: string;
+    if (currentInvoice) {
+      invoiceId = currentInvoice.id;
+      const existingItems = currentInvoice.items
+        ? (JSON.parse(currentInvoice.items) as any[])
+        : [];
+      existingItems.push({
+        description: `Proration: ${newPlan.name} (${daysRemaining}/${daysInCycle} days)`,
+        quantity: 1,
+        unitPrice: netAdjustment,
+        amount: netAdjustment,
+      });
+      const newSubtotal = round2(
+        currentInvoice.subtotal.toNumber() + netAdjustment
+      );
+      const newTax = round2(newSubtotal * (newPlan.taxRate.toNumber() / 100));
+      const newTotal = round2(newSubtotal + newTax);
+      await db.invoice.update({
+        where: { id: currentInvoice.id },
+        data: {
+          items: JSON.stringify(existingItems),
+          subtotal: new Prisma.Decimal(newSubtotal),
+          taxAmount: new Prisma.Decimal(newTax),
+          total: new Prisma.Decimal(newTotal),
+        },
+      });
+    } else {
+      const inv = await createStubInvoice(tenantId, subscriber.id, now, newPlan, input.issuedBy);
+      invoiceId = inv.id;
+    }
+    result.invoiceLineItemId = invoiceId;
   }
 
   await eventBus.emit(
