@@ -1857,3 +1857,48 @@ Stage Summary:
   * Billing engine covers the full lifecycle: recurring billing run → proration for mid-cycle changes → dunning for failed payments → tax with jurisdiction-aware GST/VAT → AR aging for finance → prepaid wallet for real-time debit.
 - All engines are API-accessible, event-bus-integrated, audit-logged, RBAC-guarded, and UI-driven from one control center.
 - 5 new core modules, 7 new API routes, 1 new UI page, 0 lint errors, browser-verified end-to-end.
+
+---
+Task ID: prod-engines-20260909
+Agent: main (Z.ai Code)
+Task: "Make the product production ready 100% with all business logic mainly the policy engine and billing engine"
+
+Work Log:
+- CODEBASE MAP: 119 API routes / 66 domains, src/core/ layered architecture, 66-model Prisma schema, real RADIUS mini-service (RFC 2865/2866). Policy existed as CRUD+sync only; billing was calendar-month hardcoded.
+
+BILLING ENGINE (new):
+- src/core/billing/cycle.ts — cycle math: monthly/quarterly/yearly/one_time, subscriber-anchored periods (billingAnchorDate ?? createdAt), anchor-day clamping (Jan 31 → Feb 28), prorationFactor, nextBillingDate. Pure functions.
+- src/core/billing/rating.ts — integer-cents rating: rateSubscription (monthly-equivalent × months, proration-aware), rateAddOn (flat/per_day/per_gb/per_month), rateOverage (whole-GB above cap), applyOverrides (percentage ≤100% clamp, flat discount clamps at 0), computeTaxCents (DB fraction 0.18 OR percent 18 conventions), rateInvoice pipeline.
+- runBilling REWRITTEN (src/core/repositories/billing/invoice.ts): per-plan cycle bounds, first-cycle proration, recurring add-ons from Subscriber.metadata.addOns, data-cap overage via aggregateUsageMb (ActiveSession+SessionHistory octets), multiple charge overrides, grace-period skip, cycle dedup, lastBilledAt tracking, previews in result. Suspended auto-suspension extracted to lifecycle engine.
+- aggregateUsageMb exported; createRatedInvoice keeps numbering INV-YYYY-XXXX.
+- src/core/billing/lifecycle.ts (runDunning): reminder→overdue→suspension stages, grace-period protection, EventBus notifications, idempotent via audit log. NOTE: dunning.ts was restored from git 5896989 (failed-payment RETRY engine used by /api/v1/billing/dunning) — my lifecycle pass lives in lifecycle.ts + /api/v1/billing/lifecycle.
+- NEW APIs: GET /api/v1/billing/preview (full rated invoice preview: cycle, proration, lines, tax, totals), POST /api/v1/billing/lifecycle (dunning pass with dryRun).
+- FIXED MONEY BUG: tax was computed 0.18% instead of 18% (fraction-vs-percent convention).
+
+POLICY ENGINE (extended):
+- engine.ts: subscriber-level policyOverrides (policyOverrides JSON: downloadKbpsCap/uploadKbpsCap/dataCapOverrideMb/fupThrottleKbps/alwaysAllow), cycle-aware FUP window + resetAt (from cycle.ts, not hardcoded month), configurable FUP throttle rate, PolicyDecision persistence (persist/context options).
+- radius-sync.ts: centralized sync — syncBandwidthProfileToRadius (Mikrotik-Rate-Limit + WISPr VSAs + Simultaneous-Use), syncQosQueueToRadius (DSCP), syncTimeAccessToRadius (schedule JSON → FreeRADIUS Login-Time syntax), removeGroupFromRadius (DELETE-path cleanup — previously leaked rows), assignSubscriberToGroup, removeSubscriberRadiusIdentity.
+- All 4 policy DELETE routes now clean RADIUS tables; enforce path persists decisions.
+
+RADIUS SERVER (table-driven now):
+- authenticator.ts reads radcheck (Cleartext-Password) → radusergroup → radgroupcheck (Simultaneous-Use, Login-Time deny at auth) → radgroupreply → proper VSA encoding (Mikrotik vendor 14988 attr 8; WISPr vendor 14122 attrs 7/8) instead of Reply-Message hack. isWithinLoginTime parser (Mo0800-2200 syntax, fail-closed).
+- packet.ts: vendorSpecificAttr/vsaString/vsaInt builders + encryptUserPassword (client-side RFC 2865 §5.2, mirrors decrypt).
+- package.json entry fixed: bun --hot src/index.ts (was missing src/).
+
+DATA + PAGES:
+- seed.ts: policy data (2 bandwidth profiles, 2 QoS queues, time-access, 5 firewall rules, full radgroupreply/radgroupcheck/radusergroup/radcheck rows, billing.overagePerGb=50 setting, 2 OLTs + 3 splitters). Fixed pre-existing loyalty seed bug risk verified OK.
+- NEW: /aaa/radius-tables page + API (live FreeRADIUS tables viewer, 4 tabs + sync counts); /devices/gpon page + API (OLT fleet w/ utilisation bars + splitter plant); catalog nav updated.
+- devices module enabled for tenant (was off).
+
+TESTS (56 passing):
+- tests/billing-engine.test.ts: 40 tests — cycle bounds/clamping, proration, rating, add-ons, overage, overrides, tax, full pipeline.
+- tests/policy-engine.test.ts: Login-Time parser + scheduleToLoginTime.
+- tests/preload.ts + bunfig.toml: server-only mock for bun test.
+- tests/radius-integration.ts: REAL UDP Access-Request e2e — valid auth → Access-Accept with Mikrotik-Rate-Limit VSA 102.4M/20.48M..., bad password → Reject, unknown user → Reject.
+
+VERIFY: bun run lint clean; dev.log clean; browser-verified /aaa/radius-tables (live sync data), /devices/gpon (OLT fleet), /billing/engines, dashboard regression OK. Billing dry-run: 1 generated/4 skipped/0 errors with proration 97% (CUST-1006 ₹911.42 incl 18% tax). Services: next-server (start-stop-daemon, port 3000), radius-server daemon (1812/1813/3799/3030).
+
+Stage Summary:
+- Billing engine: cycle-aware, prorated, usage-rated, override-composable, integer-cents safe.
+- Policy engine: full resolution cascade with per-subscriber overrides, FUP, time-block, CoA enforcement, decision audit log.
+- Policy → RADIUS sync is now a closed loop: UI/API → FreeRADIUS tables → real Access-Request enforcement.
