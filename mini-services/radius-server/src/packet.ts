@@ -266,6 +266,48 @@ export function ipAttr(type: number, ip: string): RadiusAttribute {
 }
 
 // ---------------------------------------------------------------------
+// VENDOR-SPECIFIC ATTRIBUTES (RFC 2865 §5.26)
+//   VSA = Type(26) + Len + Vendor-Id(4, BE) + Vendor-Type(1) + Vendor-Len(1) + Data
+// MikroTik vendor-id 14988 (attr 8 = Rate-Limit string),
+// WISPr vendor-id 14122 (attr 7 = BW-Max-Down, attr 8 = BW-Max-Up, int32 bits/s).
+// ---------------------------------------------------------------------
+
+export function vendorSpecificAttr(
+  vendorId: number,
+  vendorType: number,
+  data: Buffer
+): RadiusAttribute {
+  if (data.length > 253) {
+    throw new Error(`VSA data too long: ${data.length}`);
+  }
+  const buf = Buffer.alloc(6 + data.length);
+  buf.writeUInt32BE(vendorId, 0);
+  buf[4] = vendorType;
+  buf[5] = data.length + 2; // vendor-len includes type+len octets
+  data.copy(buf, 6);
+  return { type: 26, value: buf };
+}
+
+export function vsaString(vendorId: number, vendorType: number, value: string): RadiusAttribute {
+  return vendorSpecificAttr(vendorId, vendorType, Buffer.from(value, "utf8"));
+}
+
+export function vsaInt(vendorId: number, vendorType: number, value: number): RadiusAttribute {
+  const buf = Buffer.alloc(4);
+  buf.writeUInt32BE(value >>> 0, 0);
+  return vendorSpecificAttr(vendorId, vendorType, buf);
+}
+
+// Vendor IDs used by this server
+export const VENDOR_MIKROTIK = 14988;
+export const VENDOR_WISPR = 14122;
+// MikroTik vendor attribute types
+export const MIKROTIK_RATE_LIMIT = 8;
+// WISPr vendor attribute types
+export const WISPR_BW_MAX_DOWN = 7;
+export const WISPR_BW_MAX_UP = 8;
+
+// ---------------------------------------------------------------------
 // REQUEST AUTHENTICATOR VERIFICATION (RFC 2865 §3)
 // ---------------------------------------------------------------------
 
