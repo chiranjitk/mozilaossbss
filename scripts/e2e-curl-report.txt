@@ -86,3 +86,7 @@ OK   200 /policy/time-access
 OK   200 /subscribers
 --- restarting next-server (memory guard) at route #81 ---
 FAIL 200 ->  /subscribers/[id]
+OK   200 /subscribers/batch
+
+SUMMARY: PASS=81 FAIL=1 of 82
+FAILED: /subscribers/[id](200/)
