@@ -64,3 +64,7 @@ OK   /network/ipam | url=http://localhost:3000/network/ipam
 OK   /network/subnets | url=http://localhost:3000/network/subnets
 OK   /operations | url=http://localhost:3000/operations/complaints
 --- server restart at page #60 ---
+OK   /operations/agents | url=http://localhost:3000/operations/agents
+OK   /operations/areas | url=http://localhost:3000/operations/areas
+OK   /operations/complaints | url=http://localhost:3000/operations/complaints
+OK   /operations/incidents | url=http://localhost:3000/operations/incidents
