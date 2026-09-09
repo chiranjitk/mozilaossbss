@@ -79,3 +79,7 @@ OK   200 /policy/qos
 OK   200 /policy/time-access
 OK   200 /subscribers
 FAIL  /subscribers/[id]
+FAIL 000 /subscribers/batch
+
+SUMMARY: PASS=36 FAIL=46
+FAILED: /aaa/logs(000) /aaa/nas(000) /aaa/proxy(000) /aaa/radius(000) /aaa/radius-tables(000) /admin/roles(000) /admin/settings(000) /admin/users(000) /ai(000) /ai/advisor(000) /ai/churn(000) /ai/diagnosis(000) /billing(000) /billing/add-ons(000) /billing/charge-overrides(000) /billing/credit-notes(000) /billing/engines(000) /billing/grace-periods(000) /billing/promotions(000) /billing/run(000) /billing/top-ups(000) /billing/vouchers(000) /communication(000) /communication/rules(000) /communication/templates(000) /devices(000) /devices/gpon(000) /devices/mikrotik(000) /devices/snmp(000) /finance(000) /finance/collections(000) /finance/revenue(000) /finance/tax(000) /login(000) /monitoring(000) /monitoring/alerts(000) /monitoring/traffic(000) /monitoring/uptime(000) /network(000) /network/dhcp(000) /network/interfaces(000) /network/ipam(000) /operations/areas(000) /operations/complaints(000) /subscribers/[id]() /subscribers/batch(000)
