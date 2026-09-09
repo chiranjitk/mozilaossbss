@@ -1202,15 +1202,15 @@ async function main() {
 
       // FreeRADIUS group check — simultaneous use + optional login time
       const checks: Array<[string, string]> = [["Simultaneous-Use", String(def.sessionLimit)]];
-      if (def.timeWindows) {
-        // Seed allows 24×7 for basic plan; no Login-Time row needed for full-day windows
-      }
       for (const [attribute, value] of checks) {
-        await db.radGroupCheck.upsert({
-          where: { groupname_attribute: { groupname: groupName, attribute } },
-          create: { groupname: groupName, attribute, op: ":=", value },
-          update: { value },
+        const existingCheck = await db.radGroupCheck.findFirst({
+          where: { groupname: groupName, attribute },
         });
+        if (existingCheck) {
+          await db.radGroupCheck.update({ where: { id: existingCheck.id }, data: { value } });
+        } else {
+          await db.radGroupCheck.create({ data: { groupname: groupName, attribute, op: ":=", value } });
+        }
       }
       void bw;
     }
