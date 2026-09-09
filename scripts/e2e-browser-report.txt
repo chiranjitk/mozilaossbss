@@ -72,3 +72,6 @@ OK   /operations/installations | url=http://localhost:3000/operations/installati
 OK   /operations/inventory | url=http://localhost:3000/operations/inventory
 OK   /operations/leads | url=http://localhost:3000/operations/leads
 OK   /operations/loyalty | url=http://localhost:3000/operations/loyalty
+OK   /operations/referrals | url=http://localhost:3000/operations/referrals
+OK   /operations/resellers | url=http://localhost:3000/operations/resellers
+--- server restart at page #70 ---
