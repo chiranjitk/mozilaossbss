@@ -46,3 +46,7 @@ FAIL 000 /finance/revenue
 FAIL 000 /finance/tax
 FAIL 000 /login
 FAIL 000 /monitoring
+FAIL 000 /monitoring/alerts
+OK   200 /monitoring/bandwidth
+OK   200 /monitoring/syslog
+FAIL 000 /monitoring/traffic
