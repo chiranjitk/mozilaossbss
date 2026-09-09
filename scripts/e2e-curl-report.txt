@@ -69,3 +69,9 @@ OK   200 /operations/loyalty
 OK   200 /operations/referrals
 OK   200 /operations/resellers
 OK   200 /operations/technicians
+OK   200 /payments
+OK   200 /payments/gateways
+OK   200 /payments/reconciliation
+OK   200 /plans
+OK   200 /policy/bandwidth
+OK   200 /policy/firewall
