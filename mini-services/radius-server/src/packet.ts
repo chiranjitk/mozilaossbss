@@ -345,6 +345,34 @@ export function decryptUserPassword(
 }
 
 /**
+ * Encrypt the User-Password attribute (RFC 2865 §5.2) — client side.
+ * c(i) = p(i) XOR MD5(S + c(i-1)), with c(0) = Request Authenticator.
+ * Mirrors decryptUserPassword so a round-trip returns the original string.
+ */
+export function encryptUserPassword(
+  password: string,
+  sharedSecret: string,
+  authenticator: Buffer
+): Buffer {
+  const secret = Buffer.from(sharedSecret, "utf8");
+  const plain = Buffer.from(password, "utf8");
+  const paddedLength = Math.max(16, Math.ceil(plain.length / 16) * 16);
+  const padded = Buffer.alloc(paddedLength);
+  plain.copy(padded);
+
+  const encrypted = Buffer.alloc(paddedLength);
+  let prev = authenticator;
+  for (let i = 0; i < paddedLength; i += 16) {
+    const hash = createHash("md5").update(Buffer.concat([secret, prev])).digest();
+    for (let j = 0; j < 16; j++) {
+      encrypted[i + j] = padded[i + j] ^ hash[j];
+    }
+    prev = encrypted.subarray(i, i + 16);
+  }
+  return encrypted;
+}
+
+/**
  * Build the Response Authenticator (RFC 2865 §3).
  * MD5(Code + ID + Length + RequestAuthenticator + Attributes + Secret)
  */

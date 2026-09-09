@@ -16,7 +16,6 @@ import {
   generateAuthenticator,
   type RadiusAttribute,
 } from "../mini-services/radius-server/src/packet";
-
 const SECRET = "testing123"; // will be read from NAS table below
 const AUTH_PORT = 1812;
 
@@ -39,8 +38,7 @@ async function sendAccessRequest(
     const authenticator = generateAuthenticator();
     const attrs: RadiusAttribute[] = [
       stringAttr(Attribute.USER_NAME, username),
-      // encryptUserPassword needs the same API as the server's decrypt
-      encryptPasswordAttr(secret, authenticator, password),
+      { type: Attribute.USER_PASSWORD, value: encryptUserPassword(password, secret, authenticator) },
     ];
     const packet = encodePacket(PacketCode.ACCESS_REQUEST, 42, authenticator, attrs);
 
@@ -66,25 +64,6 @@ async function sendAccessRequest(
       reject(new Error("RADIUS request timeout"));
     }, 5000);
   });
-}
-
-// Local copy of RFC 2865 §5.2 encryption (client side)
-function encryptPasswordAttr(secret: string, authenticator: Buffer, password: string): RadiusAttribute {
-  const { createHash } = require("node:crypto");
-  const buf = Buffer.from(password, "utf8");
-  const padded = Buffer.alloc(Math.ceil((buf.length + 1) / 16) * 16);
-  buf.copy(padded);
-  const secretHash = createHash("md5").update(`${secret}${authenticator.toString("binary")}`, "binary").digest();
-  const encrypted = Buffer.alloc(padded.length);
-  let prev = secretHash;
-  for (let i = 0; i < padded.length; i += 16) {
-    const chunk = padded.subarray(i, i + 16);
-    const hash = createHash("md5").update(Buffer.concat([prev, chunk])).digest();
-    for (let j = 0; j < 16; j++) encrypted[i + j] = chunk[j] ^ hash[j];
-    prev = encrypted.subarray(i, i + 16);
-  }
-  void secretHash;
-  return { type: Attribute.USER_PASSWORD, value: encrypted };
 }
 
 function getStringAttr(attrs: RadiusAttribute[], type: number): string | null {
