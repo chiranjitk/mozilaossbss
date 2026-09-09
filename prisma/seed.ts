@@ -1265,7 +1265,43 @@ async function main() {
       update: {},
     });
 
-    console.log(`✓ Policy engine data seeded (2 profiles, 2 QoS queues, 5 firewall rules, RADIUS group tables)`);
+    // GPON plant — 2 OLTs + 3 splitters
+    const oltDefs = [
+      { name: "OLT-Central-01", ipAddress: "10.10.0.11", vendor: "huawei", model: "MA5608T", totalPorts: 16, usedPorts: 11, location: "Central POP" },
+      { name: "OLT-North-02", ipAddress: "10.10.0.12", vendor: "zte", model: "ZXA10 C320", totalPorts: 16, usedPorts: 4, location: "North Cabinet" },
+    ];
+    for (const o of oltDefs) {
+      await db.olt.upsert({
+        where: { tenantId_ipAddress: { tenantId: tenant.id, ipAddress: o.ipAddress } },
+        create: { tenantId: tenant.id, ...o, status: "active", firmware: "v100r018" },
+        update: {},
+      });
+    }
+    const oltRows = await db.olt.findMany({ where: { tenantId: tenant.id } });
+    const splitterDefs = [
+      { name: "SPL-Central-L1-01", type: "1:8", location: "Central POP · Level 1", oltIdx: 0, portNumber: 1 },
+      { name: "SPL-Central-L2-03", type: "1:16", location: "Central POP · Level 2", oltIdx: 0, portNumber: 3 },
+      { name: "SPL-North-L1-02", type: "1:8", location: "North Cabinet · Level 1", oltIdx: 1, portNumber: 2 },
+    ];
+    for (const s of splitterDefs) {
+      const existing = await db.splitter.findFirst({
+        where: { tenantId: tenant.id, name: s.name },
+      });
+      if (existing) continue;
+      await db.splitter.create({
+        data: {
+          tenantId: tenant.id,
+          name: s.name,
+          type: s.type,
+          location: s.location,
+          oltId: oltRows[s.oltIdx]?.id ?? null,
+          portNumber: s.portNumber,
+          status: "active",
+        },
+      });
+    }
+
+    console.log(`✓ Policy engine data seeded (2 profiles, 2 QoS queues, 5 firewall rules, RADIUS group tables, 2 OLTs, 3 splitters)`);
   }
 
   console.log("\n🎉 Cryptsk seed complete.");
