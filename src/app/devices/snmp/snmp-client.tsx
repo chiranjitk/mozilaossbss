@@ -7,7 +7,6 @@
 
 import { PageHeader } from "@/components/common/page-header";
 import { EmptyState } from "@/components/common/states";
-import { Network } from "lucide-react";
 
 export function SnmpDevicesClient() {
   return (
