@@ -9,3 +9,6 @@ OK   /aaa/nas | url=chrome-error://chromewebdata/
 OK   /aaa/proxy | url=chrome-error://chromewebdata/
 OK   /aaa/radius | url=chrome-error://chromewebdata/
 --- server restart at page #10 ---
+OK   /aaa/radius-tables | url=http://localhost:3000/aaa/radius-tables
+OK   /aaa/sessions | url=http://localhost:3000/aaa/sessions
+OK   /admin/announcements | url=http://localhost:3000/admin/announcements
