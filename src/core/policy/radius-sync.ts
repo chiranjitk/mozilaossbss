@@ -74,22 +74,29 @@ export async function syncBandwidthProfileToRadius(profile: BandwidthProfileLike
         update: { value: r.value, op: "=" },
       })
     ),
-    // Session limits in radgroupcheck
-    ...(profile.sessionLimit != null
-      ? [
-          db.radGroupCheck.upsert({
-            where: { groupname_attribute: { groupname: profile.name, attribute: "Simultaneous-Use" } },
-            create: {
-              groupname: profile.name,
-              attribute: "Simultaneous-Use",
-              op: ":=",
-              value: String(profile.sessionLimit),
-            },
-            update: { value: String(profile.sessionLimit) },
-          }),
-        ]
-      : []),
   ]);
+
+  // Session limits in radgroupcheck (no compound unique — findFirst + upsert-by-id)
+  if (profile.sessionLimit != null) {
+    const existing = await db.radGroupCheck.findFirst({
+      where: { groupname: profile.name, attribute: "Simultaneous-Use" },
+    });
+    if (existing) {
+      await db.radGroupCheck.update({
+        where: { id: existing.id },
+        data: { value: String(profile.sessionLimit) },
+      });
+    } else {
+      await db.radGroupCheck.create({
+        data: {
+          groupname: profile.name,
+          attribute: "Simultaneous-Use",
+          op: ":=",
+          value: String(profile.sessionLimit),
+        },
+      });
+    }
+  }
 }
 
 /** Remove every RADIUS row for a group. Call on profile delete. */
@@ -184,11 +191,16 @@ export async function syncTimeAccessToRadius(profile: TimeAccessLike): Promise<v
     });
     return;
   }
-  await db.radGroupCheck.upsert({
-    where: { groupname_attribute: { groupname: profile.name, attribute: "Login-Time" } },
-    create: { groupname: profile.name, attribute: "Login-Time", op: ":=", value: loginTime },
-    update: { value: loginTime },
+  const existing = await db.radGroupCheck.findFirst({
+    where: { groupname: profile.name, attribute: "Login-Time" },
   });
+  if (existing) {
+    await db.radGroupCheck.update({ where: { id: existing.id }, data: { value: loginTime } });
+  } else {
+    await db.radGroupCheck.create({
+      data: { groupname: profile.name, attribute: "Login-Time", op: ":=", value: loginTime },
+    });
+  }
 }
 
 // ---------------------------------------------------------------------
