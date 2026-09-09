@@ -29,3 +29,11 @@ OK   200 /billing/add-ons
 OK   200 /billing/charge-overrides
 OK   200 /billing/credit-notes
 OK   200 /billing/engines
+OK   200 /billing/grace-periods
+OK   200 /billing/invoices
+OK   200 /billing/promotions
+OK   200 /billing/run
+OK   200 /billing/top-ups
+OK   200 /billing/vouchers
+OK   307 /communication
+--- restarting next-server (memory guard) at route #36 ---
