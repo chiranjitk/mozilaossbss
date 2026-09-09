@@ -42,3 +42,7 @@ OK   /communication/templates | url=http://localhost:3000/communication/template
 OK   /devices | url=http://localhost:3000/devices/mikrotik
 OK   /devices/gpon | url=http://localhost:3000/devices/gpon
 --- server restart at page #40 ---
+OK   /devices/mikrotik | url=http://localhost:3000/devices/mikrotik
+OK   /devices/snmp | url=http://localhost:3000/devices/snmp
+OK   /finance | url=http://localhost:3000/finance/revenue
+OK   /finance/collections | url=http://localhost:3000/finance/collections
