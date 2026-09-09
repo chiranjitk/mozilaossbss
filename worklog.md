@@ -1993,3 +1993,68 @@ Screenshots captured (full paths):
 - /tmp/e2e-subscribers-batch.png
 - /tmp/e2e-subscribers-batch-sample.png
 
+
+---
+Task ID: E2E-BILLING
+Agent: general-purpose
+Task: E2E test Billing pages
+
+Work Log:
+- Read worklog.md (1996 lines) — confirmed Cryptsk Next.js 16 stack, Phase 7 Billing + production-engines work already done, seeded admin/admin123 creds, INR tenant currency (rule #9). Existing engines-client.tsx has 7 tabs (Policy/FUP/Proration/Dunning/Tax/AR Aging/Prepaid).
+- Used NAMED session via `export AGENT_BROWSER_SESSION=billing` for every command to avoid collisions with other concurrent agents (per prior task's hard-won lesson in E2E-CUSTOMERS).
+- Initial nav to /billing redirected to /login (named session = fresh browser context). Re-authenticated by filling @e4=admin, @e5=admin123, clicking @e6 → landed on / dashboard. All subsequent billing routes worked without further auth prompts.
+- Dev server died mid-test (curl /login → 000 / ERR_CONNECTION_REFUSED) after testing the AR Aging tab and before /billing/add-ons. Restarted with the documented stable pattern: `cd /home/z/my-project && NODE_OPTIONS=--max-old-space-size=1536 NEXT_TELEGRAPHY_DISABLED=1 nohup bun run dev > /tmp/next-restart.log 2>&1 &`. Waited 12s, confirmed HTTP 200 on /login, then continued. No further crashes.
+- Tested each page with: `agent-browser open <url>` → 3-5s wait (Turbopack cold compiles) → `agent-browser screenshot /tmp/e2e-billing-<name>.png` → `agent-browser snapshot -i` (or full `snapshot` when content was sparse) → `agent-browser errors` and `agent-browser console` (filtered for error/exception/fail). Zero console errors or page exceptions on every page.
+- For /billing/engines, clicked each of the 7 tabs in turn via @e6→@e12 refs, re-snapshotting between clicks (refs go stale on tab switch), waited 2s, took a screenshot of each tab:
+  * Policy (default, @e6 selected on load)
+  * FUP (@e7) — Jane Doe CUST-1005 / Basic 50 Mbps / 0 of 500000 MB / 0% / Normal
+  * Proration (@e8) — Subscriber ID + New Plan ID textboxes, Preview + Apply Plan Change buttons (disabled until inputs filled)
+  * Dunning (@e9) — "No invoices in dunning. All clear." (first click attempt missed; second click after fresh snapshot worked)
+  * Tax (@e10) — Jurisdiction dropdown, Rate %, Tenant State, Save Settings button + Tax Calculator card (see bug below)
+  * AR Aging (@e11) — Total Outstanding INR 3652.10, 5 invoices, 5 subscribers, 0% at risk, all in 0-30 bucket
+  * Prepaid (@e12) — Subscriber ID + Amount (default 50) + Load Wallet button + Run Bulk button
+
+Stage Summary:
+- ALL 10 billing pages render with real data and NO console errors:
+  * /billing (→ /billing/invoices) — PASS. 7 invoices rendered (INV-2026-0001..0005 + INV-2025-0001 + INV-2025-0099) with subscriber, dates, totals, balances, statuses. ₹ currency correctly shown.
+  * /billing/run — PASS. "Run Billing" + "Preview (Dry Run)" buttons rendered. (Prior run logged 1 generated/4 skipped/0 overdue.)
+  * /billing/engines — PASS for all 7 tabs. Each tab renders its specific UI with real engine data. See bugs below for Tax form population issue.
+  * /billing/grace-periods — PASS. 3+ rows (Rahul Sharma, Amit Kumar) with type "Post-Billing", statuses Cancelled/Expired, start/end dates, day counts, Edit/Delete actions.
+  * /billing/credit-notes — PASS (renders). 3 credit notes (CN-2025-0001/0002/0003) linked to INV-2026-0001 Rahul Sharma. See currency bug.
+  * /billing/promotions — PASS (renders). 2 promotions (Summer Flat $20, New Year 25% Off) with codes, types, usage counts, valid periods. See currency bug.
+  * /billing/vouchers — PASS. Voucher codes CRYP-XXXX-XXXX-XXXX-XXXX, Plan Subscription type, ₹499.00 value, Basic 50 Mbps plan, Unused status.
+  * /billing/top-ups — PASS (renders). Priya Patel 2GB / Rahul Sharma 10GB data top-ups with Cancelled/Expired statuses. See currency bug.
+  * /billing/add-ons — PASS (renders). Data Boost Pack / Installation Fee / Maintenance Window Extension with Per GB/Flat/Per Day charge types. See currency bug.
+  * /billing/charge-overrides — PASS. Rahul Sharma 20% Discount (expired) + Amit Kumar 5% Surcharge (active). Percentage values, no currency impact.
+- Screenshots captured: 16 total (10 page-level + 6 tab-level for engines excluding the default Policy which is also captured, total 7 engines screenshots — actually 7 engines + 9 other pages = 16). Stored at /tmp/e2e-billing-*.png.
+
+BUGS FOUND (sorted by severity):
+
+BUG 1 — CRITICAL: Tax tab does not load saved settings into form fields.
+  * File: src/app/billing/engines/engines-client.tsx lines 449-466 (TaxTab component).
+  * Symptom: API GET /api/v1/billing/tax returns `{jurisdiction:"in_gst", ratePct:18, tenantState:"MH"}` (verified), but the Tax tab form shows "None (tax-free)", rate 18, tenant state empty. The "Current:" footer text at line 495 DOES display the saved values, but the editable form fields are stuck on defaults.
+  * Root cause: `useState("none")`, `useState(18)`, `useState("")` initialize local state to defaults; `useQuery` populates `data` but there is no `useEffect` syncing `data` → `setJur/setRate/setState` when `data` arrives. Saving works (POST succeeds), but the form never reflects the persisted state on load.
+  * Fix: add `useEffect(() => { if (data) { setJur(data.jurisdiction); setRate(data.ratePct); setState(data.tenantState ?? ""); } }, [data]);`
+  * Impact: Operators will see misleading defaults and may inadvertently re-save "None (tax-free)" over real GST/VAT settings, breaking tax computation on future invoices.
+
+BUG 2 — HIGH: Currency hardcoded to USD across 4 billing pages (violates rule #9: "tenant is INR").
+  * Files & lines:
+    - src/app/billing/credit-notes/credit-notes-client.tsx:85-90 (formatCurrency `currency:"USD"`) and line 230 (Amount column uses raw `amount.toFixed(2)` with hardcoded `<DollarSign/>` icon prefix, not formatCurrency at all).
+    - src/app/billing/top-ups/top-ups-client.tsx:100-105 (formatCurrency `currency:"USD"`) and line 277 (Price column uses `price.toFixed(2)` + `<DollarSign/>` icon).
+    - src/app/billing/add-ons/add-ons-client.tsx:91-96 (formatCurrency `currency:"USD"`) and line 245 (uses formatCurrency which is USD-hardcoded).
+    - src/app/billing/promotions/promotions-client.tsx:109-114 (formatCurrency `currency:"USD"`) and line 277 (uses formatCurrency for flat promotions → shows "$20.00").
+  * Symptom: Credit notes show "100.00" (no symbol); top-ups show "20.00"; add-ons show "$0.25/GB", "$49.99", "$2.00/day"; promotions show "$20.00". Invoices (₹942.82) and vouchers (₹499.00) display correctly because they pass per-row `currency` from the DB.
+  * Fix pattern: pull tenant currency from session/tenant context (the dashboard already does this) and pass it into formatCurrency; or replace the local formatCurrency with the shared `formatCurrency` util already used by invoices/vouchers that takes a `currency` arg.
+  * Impact: Financial reports and operator-facing tables show wrong currency symbol/code. Does not break calculations (amounts are still numeric), but is a real-data-integrity display issue for an INR tenant.
+
+BUG 3 — LOW: AR Aging tab shows raw currency code "INR 3652.10" instead of localized symbol "₹3,652.10" used elsewhere.
+  * File: src/app/billing/engines/engines-client.tsx (AR Aging tab rendering — search for "INR " or the aging amount formatting).
+  * Symptom: AR Aging tab displays "INR 3652.10" / "INR 0.00" while invoices/vouchers show "₹942.82" / "₹499.00". Inconsistent currency formatting within the same Billing module.
+  * Fix: route the AR Aging amounts through the same formatCurrency util used by invoices.
+
+Top 3 critical fix recommendations:
+1. Fix Tax tab useEffect (BUG 1) — highest priority because operators will silently overwrite saved GST/VAT settings with "None (tax-free)" on first interaction.
+2. Unify currency formatting across all billing client files (BUG 2) — replace 4 local `formatCurrency` definitions with the shared util that already works for invoices/vouchers, and remove hardcoded `<DollarSign/>` icons in credit-notes/top-ups amount columns.
+3. Standardize AR Aging tab currency rendering (BUG 3) — minor, fold into the same currency-unification pass.
+
+Overall: Billing section is functionally complete and renders real data end-to-end with zero runtime errors. Currency consistency is the main UX debt. Dev server is stable once restarted; no other infrastructure issues observed.
