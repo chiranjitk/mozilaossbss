@@ -43,3 +43,10 @@ OK   307 /devices
 OK   200 /devices/gpon
 OK   200 /devices/mikrotik
 OK   200 /devices/snmp
+OK   307 /finance
+OK   200 /finance/collections
+OK   200 /finance/revenue
+OK   200 /finance/tax
+OK   200 /login
+OK   307 /monitoring
+--- restarting next-server (memory guard) at route #48 ---
