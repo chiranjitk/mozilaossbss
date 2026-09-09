@@ -74,3 +74,5 @@ OK   200 /operations/loyalty
 OK   200 /operations/referrals
 OK   200 /operations/resellers
 OK   200 /operations/technicians
+OK   200 /payments
+--- restarting next-server (memory guard) at route #72 ---
