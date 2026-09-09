@@ -38,3 +38,10 @@ OK   200 /communication/rules
 OK   200 /communication/templates
 OK   307 /devices
 OK   200 /devices/gpon
+OK   200 /devices/mikrotik
+FAIL 500 /devices/snmp
+OK   307 /finance
+OK   200 /finance/collections
+OK   200 /finance/revenue
+OK   200 /finance/tax
+FAIL 500 /login
