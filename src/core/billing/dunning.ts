@@ -250,11 +250,11 @@ async function retryCharge(
         number: `PMT-${Date.now()}`,
         invoiceId: invoice.id,
         subscriberId: invoice.subscriberId,
-        amount,
+        amount: new Prisma.Decimal(round2(amountDue)),
         currency: invoice.currency,
         method: lastFailedPayment.method ?? "manual",
         status: "pending",
-        notes: `Dunning retry ${"attempt"} — awaiting manual confirmation`,
+        notes: `Dunning retry attempt — awaiting manual confirmation`,
       },
     });
     // Optimistically mark as pending (operator confirms externally)
