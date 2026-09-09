@@ -1737,3 +1737,32 @@ Work Log:
 Stage Summary:
 - Commit 3971bbf pushed to https://github.com/chiranjitk/mozilaossbss (4 files, 230 insertions)
 - Repo hygiene: agent artifact dirs now permanently ignored
+
+---
+Task ID: ops-start-app-20260909
+Agent: main (Z.ai Code)
+Task: User reported "gui down please start the app" — start the Next.js dev server.
+
+Work Log:
+- Found `bun run dev` (PID 5841) alive but it was the **git-autopush mini-service** (cwd=mini-services/git-autopush, port 3005), NOT the Next.js app.
+- Next.js app (port 3000) was completely down. dmesg showed earlier OOM-kills of next-server (Turbopack ~3GB RSS in a 3.9GB box).
+- First attempts with `nohup ... & disown` and `setsid ... &` FAILED: the dev server compiled + served 200 while the Bash command ran, but died the instant the command returned.
+- Root-caused via a `setsid sleep` test: any process launched from a Bash command is killed when the command ends (descendant-kill). `setsid` alone does NOT reparent to init because the setsid wrapper stays alive as parent.
+- git-autopush survives because its `bun run dev` has PPID 1 (reparented to init/tini) from a prior non-tool launcher.
+- FIX: launched Next.js via `start-stop-daemon --start --background --make-pidfile`, which does a true double-fork daemonize → bun (PID 10898) now has PPID 1, survives command boundary like git-autopush.
+- Added `NODE_OPTIONS=--max-old-space-size=1536` + `NEXT_TELEMETRY_DISABLED=1` to cap memory and prevent OOM recurrence.
+
+Verification (Agent Browser):
+- `GET /` → 307 → redirects to `/login` (expected, auth-protected).
+- `/login` renders: Cryptsk heading, Username (prefilled admin), Password, Sign in button. No page errors.
+- Clicked Sign in → redirected to `/`, full dashboard rendered (Dashboard, Administration, Customers, AAA & Access, Network, Policy, Monitoring modules).
+- Console: only React DevTools info + HMR/Fast Refresh. No errors.
+- dev.log: `/api/auth/session 200`, `/api/v1/dashboard 200`, `/api/v1/metrics 200`.
+- Process health: bun(10898,PPID=1) + next-server(10914) up, RSS ~1.4GB, port 3000 LISTEN, 2.4Gi RAM still free.
+
+Stage Summary:
+- App is UP and STABLE on port 3000, verified end-to-end via browser (login + dashboard + API data).
+- KEY LESSON FOR FUTURE AGENTS: `nohup`/`setsid`/`&` launched from a Bash tool command are KILLED when the command returns. To start a PERSISTENT background service, use:
+  `start-stop-daemon --start --background --make-pidfile --pidfile /tmp/<svc>.pid --chdir <dir> --exec $(which bun) -- run dev`
+  (optionally prefix with `NODE_OPTIONS=--max-old-space-size=1536 NEXT_TELEMETRY_DISABLED=1`).
+- The dev server had been crashing due to OOM; the 1536MB heap cap keeps it stable while leaving ~2.4Gi free.
