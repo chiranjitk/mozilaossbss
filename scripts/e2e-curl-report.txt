@@ -18,3 +18,11 @@ OK   200 /admin/modules
 FAIL 000 /admin/roles
 FAIL 000 /admin/settings
 FAIL 000 /admin/users
+FAIL 000 /ai
+FAIL 000 /ai/advisor
+FAIL 000 /ai/churn
+FAIL 000 /ai/diagnosis
+FAIL 000 /billing
+FAIL 000 /billing/add-ons
+FAIL 000 /billing/charge-overrides
+FAIL 000 /billing/credit-notes
