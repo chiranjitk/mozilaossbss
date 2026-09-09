@@ -50,3 +50,9 @@ OK   200 /finance/tax
 OK   200 /login
 OK   307 /monitoring
 --- restarting next-server (memory guard) at route #48 ---
+OK   200 /monitoring/alerts
+OK   200 /monitoring/bandwidth
+OK   200 /monitoring/syslog
+OK   200 /monitoring/traffic
+OK   200 /monitoring/uptime
+OK   307 /network
