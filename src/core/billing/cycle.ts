@@ -5,7 +5,7 @@
 // granularity; anchor semantics: billing renews on the anchor day-of-month.
 // =====================================================================
 
-import "server-only";
+
 
 export type BillingCycleType = "monthly" | "quarterly" | "yearly" | "one_time";
 

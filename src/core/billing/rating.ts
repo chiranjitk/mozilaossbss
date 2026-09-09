@@ -9,7 +9,7 @@
 // Pure functions: no DB access, fully unit-testable.
 // =====================================================================
 
-import "server-only";
+
 import { Prisma } from "@prisma/client";
 import type { BillingCycleType } from "./cycle";
 
