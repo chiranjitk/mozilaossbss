@@ -80,3 +80,5 @@ OK   /payments | url=http://localhost:3000/payments
 OK   /payments/gateways | url=http://localhost:3000/payments/gateways
 OK   /payments/reconciliation | url=http://localhost:3000/payments/reconciliation
 OK   /plans | url=http://localhost:3000/plans
+OK   /policy/bandwidth | url=http://localhost:3000/policy/bandwidth
+OK   /policy/firewall | url=http://localhost:3000/policy/firewall
