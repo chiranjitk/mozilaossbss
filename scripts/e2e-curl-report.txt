@@ -28,3 +28,7 @@ FAIL 000 /billing/charge-overrides
 FAIL 000 /billing/credit-notes
 FAIL 000 /billing/engines
 FAIL 000 /billing/grace-periods
+FAIL 000 /billing/invoices
+FAIL 000 /billing/promotions
+FAIL 000 /billing/run
+OK   200 /billing/top-ups
