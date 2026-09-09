@@ -10,3 +10,15 @@ OK   200 /aaa/proxy
 OK   200 /aaa/radius
 OK   200 /aaa/radius-tables
 OK   200 /aaa/sessions
+FAIL 000 /admin/announcements
+FAIL 000 /admin/api-keys
+FAIL 000 /admin/audit
+FAIL 000 /admin/backup
+FAIL 000 /admin/modules
+FAIL 000 /admin/roles
+FAIL 000 /admin/settings
+FAIL 000 /admin/users
+FAIL 000 /ai
+FAIL 000 /ai/advisor
+FAIL 000 /ai/churn
+FAIL 000 /ai/diagnosis
