@@ -75,3 +75,7 @@ OK   /operations/loyalty | url=http://localhost:3000/operations/loyalty
 OK   /operations/referrals | url=http://localhost:3000/operations/referrals
 OK   /operations/resellers | url=http://localhost:3000/operations/resellers
 --- server restart at page #70 ---
+OK   /operations/technicians | url=http://localhost:3000/operations/technicians
+OK   /payments | url=http://localhost:3000/payments
+OK   /payments/gateways | url=http://localhost:3000/payments/gateways
+OK   /payments/reconciliation | url=http://localhost:3000/payments/reconciliation
