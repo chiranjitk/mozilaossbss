@@ -30,3 +30,11 @@ FAIL 000 /billing/engines
 FAIL 000 /billing/grace-periods
 OK   200 /billing/invoices
 FAIL 000 /billing/promotions
+FAIL 000 /billing/run
+FAIL 000 /billing/top-ups
+FAIL 000 /billing/vouchers
+FAIL 000 /communication
+FAIL 000 /communication/rules
+FAIL 000 /communication/templates
+FAIL 000 /devices
+FAIL 000 /devices/gpon
