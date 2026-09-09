@@ -20,3 +20,7 @@ OK   /admin/roles | url=http://localhost:3000/admin/roles
 OK   /admin/settings | url=http://localhost:3000/admin/settings
 OK   /admin/users | url=http://localhost:3000/admin/users
 --- server restart at page #20 ---
+OK   /ai | url=http://localhost:3000/ai/advisor
+OK   /ai/advisor | url=http://localhost:3000/ai/advisor
+OK   /ai/churn | url=http://localhost:3000/ai/churn
+OK   /ai/diagnosis | url=http://localhost:3000/ai/diagnosis
