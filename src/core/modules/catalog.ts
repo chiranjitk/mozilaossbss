@@ -279,7 +279,7 @@ export const MODULE_CATALOG: CryptskModule[] = [
             id: "radius-tables",
             label: "FreeRADIUS Tables",
             icon: "Database",
-            href: "/aaa/radius",
+            href: "/aaa/radius-tables",
             permission: "aaa.session.read",
           },
         ],
