@@ -68,3 +68,7 @@ OK   /operations/agents | url=http://localhost:3000/operations/agents
 OK   /operations/areas | url=http://localhost:3000/operations/areas
 OK   /operations/complaints | url=http://localhost:3000/operations/complaints
 OK   /operations/incidents | url=http://localhost:3000/operations/incidents
+OK   /operations/installations | url=http://localhost:3000/operations/installations
+OK   /operations/inventory | url=http://localhost:3000/operations/inventory
+OK   /operations/leads | url=http://localhost:3000/operations/leads
+OK   /operations/loyalty | url=http://localhost:3000/operations/loyalty
