@@ -2075,3 +2075,56 @@ Work Log:
 
 Stage Summary:
 - Full UI E2E: 82/82 routes healthy server-side, 82/82 browser-verified with zero client JS errors, 56/56 unit tests, RADIUS UDP integration verified, lint clean. One missing-file bug fixed (snmp-client). App is E2E-green and pushed to GitHub.
+
+---
+Task ID: E2E-AAA-NETWORK
+Agent: general-purpose
+Task: E2E test AAA & Network pages
+
+Work Log:
+- Read worklog.md head/tail — confirmed Cryptsk Next.js 16 stack, Phase 3 AAA already implemented (real RADIUS worker on UDP 1812/1813/3799), Phase 4 Network (IPAM/Subnets/DHCP/DNS/Interfaces) implemented, seeded admin/admin123 creds, INR tenant currency, real-data rule.
+- Used NAMED session `aaanet` (`export AGENT_BROWSER_SESSION=aaanet` on every command) per the E2E-CUSTOMERS lesson to avoid collisions with concurrent agents.
+- Re-authenticated at /login (named session = fresh browser context) — admin/admin123 → landed on / dashboard.
+- Dev server crashed once mid-test (ERR_CONNECTION_REFUSED on /aaa/coa). Restarted with `cd /home/z/my-project && NODE_OPTIONS=--max-old-space-size=1536 NEXT_TELEMETRY_DISABLED=1 start-stop-daemon --start --background --make-pidfile --pidfile /tmp/nextjs.pid --chdir /home/z/my-project --exec $(which bun) -- run dev` (the documented stable pattern). Server died a second time before /network/subnets but restart with same pattern brought it back. No app-layer cause — known 4 GB sandbox OOM during Turbopack cold compiles (already documented in Tasks 7-QA, ops-start-app-20260909, E2E-BILLING, E2E-CUSTOMERS).
+- Tested each page with: `agent-browser open <url>` → 2.5–4s wait (Turbopack cold compiles 2-6s per route under 4 GB sandbox) → `agent-browser screenshot /tmp/e2e-<name>.png` → `agent-browser snapshot` saved to /tmp/snap-<name>.txt → `agent-browser errors` + `agent-browser console | grep -iE "error|fail|exception"`. Zero console errors or page exceptions on every page.
+- SPECIAL FOCUS /aaa/radius-tables: page loads on default tab "Group Reply" (radgroupreply — 10 rows of Mikrotik-Rate-Limit, WISPr-Bandwidth-Max-Down/Up, Idle-Timeout, Session-Timeout for plan-basic-50-mbps + plan-pro-100-mbps). KPI tiles show counts: radGroupReply 10, radGroupCheck 2, radUserGroup 6, radCheck 3, radReply 0. Clicked each of the 4 tabs in sequence via @e11→@e14 refs:
+  * Group Reply (radgroupreply) [default, @e11] — 10 rows, real bandwidth attributes.
+  * Group Check (radgroupcheck) [@e12] — 2 rows: Simultaneous-Use := 1 (plan-basic-50-mbps), := 3 (plan-pro-100-mbps).
+  * User Groups (radusergroup) [@e13] — 6 rows: amit.kumar/bjohnson/jdoe/jsmith/priya.patel/rahul.sharma mapped to plan groups.
+  * User Check (radcheck) [@e14] — 3 rows: Cleartext-Password := (masked ••••••) for amit.kumar/priya.patel/rahul.sharma.
+- One agent-browser quirk: `agent-browser click "User Groups"` (clicking by accessible name) failed with "Could not locate element with role=tab name=User Groups". Refreshed the snapshot and clicked by ref (@e13) instead — worked first try. This is documented agent-browser behavior — refs go stale after a tab switch but a fresh snapshot fixes them.
+
+Stage Summary:
+- Per-page pass/fail (all 15 pages tested):
+  1.  /aaa/sessions         — PASS (2 active sessions: Priya Patel session-0002 on MikroTik Router 1 @ 10.0.0.1, IP 192.168.1.101, MAC AA:BB:CC:DD:EE:02, 56h 21m 51s duration. Live + Refresh buttons. Search + Columns.)
+  2.  /aaa/history          — PASS (2 historical sessions: rahul.sharma test-acct-1788785754 + test-acct-1788785701 on Loopback Test NAS @ 127.0.0.1, terminations User-Request + Admin-Reset. Export CSV + All-causes filter.)
+  3.  /aaa/nas              — PASS (2 NAS: Loopback Test NAS @ 127.0.0.1 Generic, MikroTik Router 1 @ 10.0.0.1 MikroTik, both UDP 3799 CoA port, 2 active sessions on MikroTik. Add NAS + search.)
+  4.  /aaa/logs             — PASS (1 log entry: session.disconnect on ActiveSession, Success, by Cryptsk Administrator. Refresh + Export + All-status filter.)
+  5.  /aaa/radius           — PASS (RADIUS Worker Running, uptime 5h 46m 18s, 72.2 MB RSS. Listening on UDP 1812/1813/3799. RFC 2865/2866/2869/3576 Supported, 3580/4675 Planned. Security: MD5+User-Password, HMAC-MD5 Message-Authenticator. Architecture: modular monolith + selective workers.)
+  6.  /aaa/radius-tables    — PASS (all 4 tabs verified with real rows — see SPECIAL FOCUS above.)
+  7.  /aaa/captive-portal   — PASS (3 portals: Office Visitor Access CORPORATE/RADIUS/8h/Unlimited/Disabled, Cafe Guestnet CAFÉ/Voucher/1h/4096kbps/Active, Hotel Lobby WiFi HOTEL/Click-to-Continue/4h/10240kbps/Active. Captive Portal Sessions table below. New Portal + All-status filter.)
+  8.  /aaa/proxy            — PASS (3 servers: Acct Backup Server @ 203.0.113.30 (Accounting Only, Disabled), Partner ISP Auth @ 203.0.113.20 (Auth Only, Active), Upstream RADIUS 1 @ 203.0.113.10 (Auth+Acct, Active). Auth/acct ports 1812/1813, timeouts 3s/5s/10s. Secrets masked. Tabs: Servers + Realms.)
+  9.  /aaa/coa              — PASS (35 total events, 15 success, 5 failed, 5 pending. Real events: Top-up Apply (CUST-0002), Session Disconnect (CUST-0002, Failed), Plan Change (CUST-0001, Success x2). NAS 10.0.0.1:3799. View details buttons. All-status + All-types filters.)
+  10. /aaa/attributes       — PASS (12 total attributes, 3 vendors, 6 String + 3 Integer. Real attributes: Acct-Interim-Interval, Class, Framed-IP-Address, Framed-IP-Netmask, Idle-Timeout, Session-Timeout, User-Name (Standard vendor, Reply usage). New Attribute + All-types + All-usages filters.)
+  11. /network (→ /network/ipam) — PASS (2 subnets: NAS Uplink Point-to-Point 10.0.0.0/30, Subscriber Pool Building A 192.168.1.0/24. KPIs: 256 usable IPs, 3 allocated, 1 DHCP lease. Utilizations 50% / 0.8%. Gateway/VLAN, status Active. New Subnet + All-status.)
+  12. /network/subnets      — PASS (Visual subnet cards: 10.0.0.0/30 Active/Management/50% util/gateway 10.0.0.1/0 DHCP; 192.168.1.0/24 Active/Data/VLAN 100/0.8% util/gateway 192.168.1.1/1 DHCP. New Subnet + search + All-status.)
+  13. /network/dhcp         — PASS (1 lease: 192.168.1.100 / AA:BB:CC:DD:EE:01 / rahul-pc / Subscriber Pool Building A 192.168.1.0/24 / 2h 0m lease / expired remaining / Active state. All-states filter.)
+  14. /network/dns          — PASS (1 zone: cryptsk.local FORWARD, SOA serial 1, primary ns ns1.cryptsk.local, 4 records, Active, created 2 days ago. New Zone + search.)
+  15. /network/interfaces   — PASS (2 interfaces: ether1 Uplink to ISP/WAN/10.0.0.1/30/AA:BB:CC:DD:EE:FF/MTU 1500/Up 1000 Mbps/↓1.23 GB ↑987.7 MB/0 errors/Enabled; ether2 Subscriber LAN/ethernet/192.168.1.1/24/AA:BB:CC:DD:EE:FE/VLAN 100 MTU 1500/Up 1000 Mbps/↓2.35 GB ↑1.88 GB/0 errors/Enabled. New Interface + search.)
+- 0 console errors, 0 page exceptions across all 15 pages.
+- 19 screenshots captured total (15 page screenshots + 4 radius-tables tab screenshots). Paths:
+  * /tmp/e2e-aaa-sessions.png, /tmp/e2e-aaa-history.png, /tmp/e2e-aaa-nas.png, /tmp/e2e-aaa-logs.png, /tmp/e2e-aaa-radius.png
+  * /tmp/e2e-aaa-radius-tables-radgroupreply.png, /tmp/e2e-aaa-radius-tables-radgroupcheck.png, /tmp/e2e-aaa-radius-tables-radusergroup.png, /tmp/e2e-aaa-radius-tables-radcheck.png (4 tabs)
+  * /tmp/e2e-aaa-captive-portal.png, /tmp/e2e-aaa-proxy.png, /tmp/e2e-aaa-coa.png, /tmp/e2e-aaa-attributes.png
+  * /tmp/e2e-network-ipam.png, /tmp/e2e-network-subnets.png, /tmp/e2e-network-dhcp.png, /tmp/e2e-network-dns.png, /tmp/e2e-network-interfaces.png
+- No app-layer bugs found in AAA & Network sections. All pages render real DB-backed data with proper tables, filters, KPIs, and actions.
+- /aaa/radius-tables SPECIAL FOCUS: all 4 FreeRADIUS tables (radcheck, radusergroup, radgroupcheck, radgroupreply) populate correctly with live data — confirming the closed-loop policy sync UI/API/Service/Repo → FreeRADIUS tables → real RADIUS Access-Request enforcement mentioned in the prod-engines-20260909 worklog entry.
+
+Bugs / issues found:
+1. [LOW/OPS] Dev server crashed twice during testing (ERR_CONNECTION_REFUSED on /aaa/coa first time, /network/subnets second time). Root cause: Turbopack cold-compiles on first visit to each new route — under the 4 GB sandbox with 2 concurrent Chrome processes (agent-browser), Next.js OOMs and dies. Mitigation already documented: NODE_OPTIONS=--max-old-space-size=1536 + start-stop-daemon restart pattern. No app-layer fix needed.
+2. [LOW/OBS] agent-browser `click "<accessible name>"` for tab elements returns "Could not locate element with role=tab name=User Groups" intermittently, even though the snapshot clearly shows `tab "User Groups" [ref=e13]`. Workaround: refresh snapshot then click by ref (@e13). Not a Cryptsk bug — agent-browser quirk.
+
+Top 3 critical fix recommendations:
+1. NONE — all 15 AAA & Network pages pass acceptance criteria with zero runtime errors and real DB data.
+2. (Hardening) Add automated Playwright/Vitest E2E tests for the AAA & Network section so regressions are caught in CI. Currently zero automated tests exist (architecture rule #10 requires them; flagged as risk in worklog Tasks 0-complete and 1-complete).
+3. (Hardening) Stabilize the dev-server-under-4GB problem: pin Turbopack to persistent compile cache (`next dev --turbopack` with `TURBOPACK_CACHE_DIR`), or pre-compile all routes on container start, so the first-visit OOM crashes stop happening mid-test. Currently every new route triggers a 2-6s cold compile that can OOM under concurrent load.
