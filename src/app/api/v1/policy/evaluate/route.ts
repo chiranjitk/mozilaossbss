@@ -39,7 +39,11 @@ export const POST = apiRoute(async (req: NextRequest, { requestId }) => {
   const parsed = enforceSchema.safeParse(body);
   if (!parsed.success) throw ApiError.validation(parsed.error);
 
-  const policy = await evaluateSubscriberPolicy(ctx.tenantId, parsed.data.subscriberId);
+  const policy = await evaluateSubscriberPolicy(ctx.tenantId, parsed.data.subscriberId, {
+    context: "enforcement",
+    persist: true,
+    actorUserId: ctx.userId,
+  });
   const result = await enforcePolicy(ctx.tenantId, policy, ctx.userId, requestId);
 
   await recordAudit({
