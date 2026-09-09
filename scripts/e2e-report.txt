@@ -76,3 +76,10 @@ ROUTE /plans | url=chrome-error://chromewebdata/ | dom="OK"
 ROUTE /policy/bandwidth | url=chrome-error://chromewebdata/ | dom="OK"
 ROUTE /policy/firewall | url=http://localhost:3000/login | dom="OK"
 ROUTE /policy/qos | url=about:blank | dom="OK"
+ROUTE /policy/time-access | url=http://localhost:3000/login | dom="OK"
+ROUTE /subscribers | url=http://localhost:3000/login | dom="OK"
+ROUTE /subscribers/[id] | url=http://localhost:3000/login | dom="OK"
+ROUTE /subscribers/batch | url=http://localhost:3000/login | dom="OK"
+
+SUMMARY: PASS=0 FAIL=82
+FAILED: / /aaa /aaa/attributes /aaa/captive-portal /aaa/coa /aaa/history /aaa/logs /aaa/nas /aaa/proxy /aaa/radius /aaa/radius-tables /aaa/sessions /admin/announcements /admin/api-keys /admin/audit /admin/backup /admin/modules /admin/roles /admin/settings /admin/users /ai /ai/advisor /ai/churn /ai/diagnosis /billing /billing/add-ons /billing/charge-overrides /billing/credit-notes /billing/engines /billing/grace-periods /billing/invoices /billing/promotions /billing/run /billing/top-ups /billing/vouchers /communication /communication/rules /communication/templates /devices /devices/gpon /devices/mikrotik /devices/snmp /finance /finance/collections /finance/revenue /finance/tax /login /monitoring /monitoring/alerts /monitoring/bandwidth /monitoring/syslog /monitoring/traffic /monitoring/uptime /network /network/dhcp /network/dns /network/interfaces /network/ipam /network/subnets /operations /operations/agents /operations/areas /operations/complaints /operations/incidents /operations/installations /operations/inventory /operations/leads /operations/loyalty /operations/referrals /operations/resellers /operations/technicians /payments /payments/gateways /payments/reconciliation /plans /policy/bandwidth /policy/firewall /policy/qos /policy/time-access /subscribers /subscribers/[id] /subscribers/batch
