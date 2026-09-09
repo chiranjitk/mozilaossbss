@@ -83,3 +83,6 @@ OK   200 /policy/bandwidth
 OK   200 /policy/firewall
 OK   200 /policy/qos
 OK   200 /policy/time-access
+OK   200 /subscribers
+--- restarting next-server (memory guard) at route #81 ---
+FAIL 200 ->  /subscribers/[id]
