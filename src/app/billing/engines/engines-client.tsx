@@ -16,7 +16,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
-import { formatCurrency, currencySymbol } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 import {
   Card,
   CardContent,
@@ -523,15 +523,15 @@ function TaxTab() {
                 calcResult.taxLines.map((l) => (
                   <div key={l.label} className="flex justify-between">
                     <span>{l.label} ({l.ratePct}%)</span>
-                    <span className="tabular-nums">{calcResult.currency} {l.taxAmount.toFixed(2)}</span>
+                    <span className="tabular-nums">{formatCurrency(l.taxAmount, calcResult.currency)}</span>
                   </div>
                 ))
               )}
               <Separator />
-              <div className="flex justify-between"><span className="text-muted-foreground">Base</span><span className="tabular-nums">{calcResult.currency} {calcResult.baseAmount.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Total Tax</span><span className="tabular-nums">{calcResult.currency} {calcResult.totalTax.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Base</span><span className="tabular-nums">{formatCurrency(calcResult.baseAmount, calcResult.currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Total Tax</span><span className="tabular-nums">{formatCurrency(calcResult.totalTax, calcResult.currency)}</span></div>
               <Separator />
-              <div className="flex justify-between font-semibold"><span>Grand Total</span><span className="tabular-nums">{calcResult.currency} {calcResult.grandTotal.toFixed(2)}</span></div>
+              <div className="flex justify-between font-semibold"><span>Grand Total</span><span className="tabular-nums">{formatCurrency(calcResult.grandTotal, calcResult.currency)}</span></div>
             </div>
           )}
         </CardContent>
@@ -553,6 +553,8 @@ interface ArReport {
 function ArAgingTab() {
   const { data, isLoading, refetch } = useQuery<ArReport>({ queryKey: ["ar-aging"], queryFn: () => api<ArReport>("/api/v1/billing/aging") });
 
+  const fmt = (n: number) => data ? formatCurrency(n, data.currency) : formatCurrency(n);
+
   return (
     <Card>
       <CardHeader>
@@ -568,10 +570,10 @@ function ArAgingTab() {
         ) : data ? (
           <>
             <div className="grid gap-3 sm:grid-cols-4">
-              <Metric label="Total Outstanding" value={`${data.currency} ${data.totalOutstanding.toFixed(2)}`} />
+              <Metric label="Total Outstanding" value={fmt(data.totalOutstanding)} />
               <Metric label="Total Invoices" value={String(data.totalInvoices)} />
               <Metric label="Total Subscribers" value={String(data.totalSubscribers)} />
-              <Metric label="At Risk (61+ days)" value={`${data.currency} ${data.atRiskAmount.toFixed(2)}`} hint={`${data.atRiskPct}% of AR`} hintTone={data.atRiskPct > 25 ? "warn" : "ok"} />
+              <Metric label="At Risk (61+ days)" value={fmt(data.atRiskAmount)} hint={`${data.atRiskPct}% of AR`} hintTone={data.atRiskPct > 25 ? "warn" : "ok"} />
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {data.buckets.map((b, i) => {
@@ -579,7 +581,7 @@ function ArAgingTab() {
                 return (
                   <div key={b.label} className={`rounded-lg border p-4 ${i >= 2 ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30" : ""}`}>
                     <div className="text-xs font-medium text-muted-foreground">{b.label}</div>
-                    <div className="mt-1 text-lg font-semibold tabular-nums">{data.currency} {b.totalAmount.toFixed(2)}</div>
+                    <div className="mt-1 text-lg font-semibold tabular-nums">{fmt(b.totalAmount)}</div>
                     <div className="mt-1 text-xs text-muted-foreground">{b.invoiceCount} invoices · {b.subscribers} subscribers</div>
                     {tone === "warn" && b.totalAmount > 0 && <AlertTriangle className="mt-2 h-4 w-4 text-amber-500" />}
                   </div>
