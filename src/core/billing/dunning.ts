@@ -169,7 +169,7 @@ export async function processDunningQueue(
       await db.invoice.update({
         where: { id: invoice.id },
         data: {
-          amountPaid: { set: newAmountPaid },
+          amountPaid: new Prisma.Decimal(round2(newAmountPaid)),
           status: newStatus,
         },
       });
@@ -272,7 +272,7 @@ async function retryCharge(
         number: `PMT-${Date.now()}`,
         invoiceId: invoice.id,
         subscriberId: invoice.subscriberId,
-        amount: amount,
+        amount: new Prisma.Decimal(round2(amount)),
         currency: invoice.currency,
         method: "gateway",
         gateway: gateway.name,
