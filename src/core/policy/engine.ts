@@ -369,7 +369,10 @@ async function evaluateFup(
   tenantId: string,
   subscriberId: string,
   capMb: number | null,
-  usageOverrideMb?: number
+  usageOverrideMb?: number,
+  billingCycle?: string | null,
+  anchor?: Date | null,
+  fupThrottleKbps?: number | null
 ): Promise<FupDecision> {
   if (!capMb || capMb <= 0) {
     return {
@@ -381,20 +384,33 @@ async function evaluateFup(
     };
   }
 
+  // Cycle-aware usage window (anchored to the subscriber's billing cycle)
+  let windowStart: Date;
+  let resetAt: Date;
+  try {
+    const { parseCycle, getCycleBounds } = await import("@/core/billing/cycle");
+    const cycle = parseCycle(billingCycle ?? undefined);
+    const bounds = getCycleBounds(cycle, anchor ?? new Date(), new Date());
+    windowStart = bounds.periodStart;
+    resetAt = bounds.periodEnd;
+  } catch {
+    const now = new Date();
+    windowStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    resetAt = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  }
+
   let usedMb: number;
   if (usageOverrideMb !== undefined) {
     usedMb = usageOverrideMb;
   } else {
     // Sum octets from current billing cycle's session history + active sessions
-    const cycleStart = await currentBillingCycleStart();
-
     const [historyAgg, activeAgg] = await Promise.all([
       db.sessionHistory.aggregate({
         _sum: { inputOctets: true, outputOctets: true },
         where: {
           tenantId,
           subscriberId,
-          startTime: { gte: cycleStart },
+          startTime: { gte: windowStart },
         },
       }),
       db.activeSession.aggregate({
@@ -417,12 +433,8 @@ async function evaluateFup(
   const utilizationPct = (usedMb / capMb) * 100;
   const throttled = usedMb >= capMb;
 
-  // FUP throttle rate: 1 Mbps floor — industry standard "safe browsing" rate
-  const throttledRateKbps = throttled ? 1024 : null;
-
-  // Reset at next billing cycle (1st of next month, simplified)
-  const now = new Date();
-  const resetAt = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  // FUP throttle rate: configurable per-subscriber, else 1 Mbps floor
+  const throttledRateKbps = throttled ? (fupThrottleKbps ?? 1024) : null;
 
   return {
     applicable: true,
@@ -571,13 +583,8 @@ function tzOffsetMs(timezone: string): number {
 }
 
 // ---------------------------------------------------------------------
-// Billing cycle start (1st of current month — matches runBilling)
+// Billing cycle start: delegated to the cycle engine (subscriber-anchored)
 // ---------------------------------------------------------------------
-async function currentBillingCycleStart(): Promise<Date> {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
-}
-
 // ---------------------------------------------------------------------
 // Build the Mikrotik-Rate-Limit string from an EffectiveRateLimit
 //   "down/up [burst-down/burst-up [burst-threshold-down/up [burst-time]]]"
