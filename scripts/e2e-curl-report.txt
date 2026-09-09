@@ -18,3 +18,9 @@ OK   200 /admin/backup
 OK   200 /admin/modules
 OK   200 /admin/roles
 OK   200 /admin/settings
+OK   200 /admin/users
+OK   307 /ai
+OK   200 /ai/advisor
+OK   200 /ai/churn
+OK   200 /ai/diagnosis
+--- restarting next-server (memory guard) at route #24 ---
