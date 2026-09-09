@@ -11,6 +11,7 @@ import {
   parsePagination,
   type PaginatedResult,
 } from "@/core/repositories/base";
+import type { RatedLineItem } from "@/core/billing/rating";
 
 // Invoice statuses
 export const INVOICE_STATUS = {
@@ -273,13 +274,48 @@ export async function markOverdueInvoices(tenantId: string): Promise<number> {
 }
 
 /**
+ * Aggregate a subscriber's data usage (MB) within a time window from
+ * ActiveSession (current) + SessionHistory (completed). Octets are BigInt.
+ */
+export async function aggregateUsageMb(
+  subscriberId: string,
+  windowStart: Date,
+  windowEnd: Date
+): Promise<{ downMb: number; upMb: number; totalMb: number }> {
+  const [active, history] = await Promise.all([
+    db.activeSession.aggregate({
+      _sum: { inputOctets: true, outputOctets: true },
+      where: { subscriberId, startTime: { gte: windowStart, lt: windowEnd } },
+    }),
+    db.sessionHistory.aggregate({
+      _sum: { inputOctets: true, outputOctets: true },
+      where: { subscriberId, startTime: { gte: windowStart, lt: windowEnd } },
+    }),
+  ]);
+
+  const downBytes =
+    (history._sum.inputOctets ?? 0n) + (active._sum.inputOctets ?? 0n);
+  const upBytes =
+    (history._sum.outputOctets ?? 0n) + (active._sum.outputOctets ?? 0n);
+
+  const downMb = Number(downBytes) / (1024 * 1024);
+  const upMb = Number(upBytes) / (1024 * 1024);
+  return { downMb, upMb, totalMb: downMb + upMb };
+}
+
+/**
  * Run billing for active subscribers: generate invoices for all active
- * subscribers with a plan. Skips subscribers who already have an unpaid
- * invoice for the current billing period.
- * INDUSTRY STANDARD:
- *   - Skips subscribers with active grace periods (pre-billing grace)
- *   - Applies charge overrides (discounts/surcharges) to invoice amount
- *   - Auto-suspends subscribers whose overdue invoices exceed grace period
+ * subscribers with a plan.
+ * PRODUCTION ENGINE:
+ *   - Cycle-aware periods: per-plan billingCycle (monthly/quarterly/yearly/one_time)
+ *     anchored on subscriber.billingAnchorDate (or createdAt)
+ *   - First-cycle proration (service start mid-cycle)
+ *   - Recurring add-on lines from subscriber.metadata.addOns
+ *   - Usage-based data-cap overage rating (per-GB) from session accounting
+ *   - Multiple charge overrides applied via rating engine (integer cents)
+ *   - Grace periods honored (pre-billing skip)
+ *   - Dedup: skips subscribers already having an unpaid invoice this cycle
+ *   - Updates subscriber.lastBilledAt; dunning/suspension moved to dunning engine
  */
 export async function runBilling(
   tenantId: string,
@@ -290,10 +326,28 @@ export async function runBilling(
   suspended: number;
   errors: Array<{ subscriberId: string; error: string }>;
   totalAmount: number;
+  previews: Array<{
+    subscriberId: string;
+    customerId?: string;
+    periodStart: string;
+    periodEnd: string;
+    prorated: boolean;
+    total: number;
+  }>;
 }> {
   const { dryRun = false, issuedBy } = options;
+  const { parseCycle, getCycleBounds, prorationFactor } = await import(
+    "@/core/billing/cycle"
+  );
+  const {
+    rateSubscription,
+    rateAddOn,
+    rateOverage,
+    rateInvoice,
+    toMajor,
+    centsToDecimal,
+  } = await import("@/core/billing/rating");
 
-  // Get all active subscribers with a plan
   const subscribers = await db.subscriber.findMany({
     where: { tenantId, status: "active", planId: { not: null } },
     include: { plan: true },
@@ -304,32 +358,42 @@ export async function runBilling(
   let skipped = 0;
   let suspended = 0;
   let totalAmount = 0;
+  const previews: Array<{
+    subscriberId: string;
+    customerId?: string;
+    periodStart: string;
+    periodEnd: string;
+    prorated: boolean;
+    total: number;
+  }> = [];
 
   const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
 
   for (const sub of subscribers) {
     try {
-      const periodStart = new Date(currentYear, currentMonth, 1);
-      const periodEnd = new Date(currentYear, currentMonth + 1, 1);
+      const plan = sub.plan!;
+      const cycle = parseCycle(
+        options.billingCycle ?? plan.billingCycle
+      );
+      const anchor = sub.billingAnchorDate ?? sub.createdAt;
+      const bounds = getCycleBounds(cycle, anchor, now);
 
-      // 1. Check if subscriber already has an unpaid invoice this billing period
+      // 1. Dedup: unpaid invoice already issued within this cycle window
       const existingUnpaid = await db.invoice.findFirst({
         where: {
           tenantId,
           subscriberId: sub.id,
-          issueDate: { gte: periodStart, lt: periodEnd },
+          issueDate: { gte: bounds.periodStart, lt: bounds.periodEnd },
           status: { in: ["issued", "partial", "overdue"] },
         },
+        select: { id: true },
       });
-
       if (existingUnpaid) {
         skipped++;
         continue;
       }
 
-      // 2. Check for active grace period (pre-billing grace)
+      // 2. Pre-billing grace period skip
       const activeGrace = await db.gracePeriod.findFirst({
         where: {
           tenantId,
@@ -338,15 +402,67 @@ export async function runBilling(
           status: "active",
           endDate: { gt: now },
         },
+        select: { id: true },
       });
-
       if (activeGrace) {
         skipped++;
         continue;
       }
 
-      // 3. Check for charge overrides (discounts or surcharges)
-      const chargeOverride = await db.chargeOverride.findFirst({
+      // 3. Proration: first invoice for a subscriber who joined mid-cycle.
+      //    (lastBilledAt null AND createdAt after cycle start)
+      const isFirstCycle = sub.lastBilledAt == null;
+      const proration =
+        isFirstCycle && sub.createdAt > bounds.periodStart
+          ? prorationFactor(cycle, anchor, sub.createdAt, now)
+          : 1;
+
+      // 4. Subscription line(s)
+      const subscriptionLines = rateSubscription(plan, cycle, proration);
+
+      // 5. Recurring add-ons from metadata
+      let addOnLines: RatedLineItem[] = [];
+      const meta = safeParseJSON<Record<string, unknown>>(sub.metadata);
+      const metaAddOns = Array.isArray(meta?.addOns) ? (meta!.addOns as Array<Record<string, unknown>>) : [];
+      if (metaAddOns.length > 0) {
+        const days = bounds.totalDays;
+        addOnLines = metaAddOns
+          .filter((a) => a && typeof a === "object" && a.name)
+          .map((a) =>
+            rateAddOn(
+              {
+                id: String(a.id ?? ""),
+                name: String(a.name),
+                chargeType: String(a.chargeType ?? "flat"),
+                price: Number(a.price ?? 0),
+                quantity: Number(a.quantity ?? 1),
+              },
+              { daysInCycle: days }
+            )
+          )
+          .filter((l) => Math.round(l.amount * 100) > 0);
+      }
+
+      // 6. Usage-based overage (FUP) when plan has a data cap
+      let overageLine: RatedLineItem | null = null;
+      if (plan.dataCap != null && plan.dataCap > 0) {
+        const usage = await aggregateUsageMb(sub.id, bounds.periodStart, bounds.periodEnd);
+        const perGbSetting = await getOveragePerGbCents(tenantId);
+        const overage = rateOverage(plan.dataCap, usage.totalMb, perGbSetting);
+        if (overage.billed) {
+          overageLine = {
+            description: `Data overage — ${overage.chargeableGb} GB above ${plan.dataCap} MB cap (${Math.round(usage.totalMb)} MB used)`,
+            quantity: overage.chargeableGb,
+            unitPrice: toMajor(perGbSetting),
+            amount: toMajor(overage.cents),
+            kind: "overage",
+            meta: { capMb: plan.dataCap, usedMb: Math.round(usage.totalMb) },
+          };
+        }
+      }
+
+      // 7. Active charge overrides (all of them)
+      const overrides = await db.chargeOverride.findMany({
         where: {
           tenantId,
           subscriberId: sub.id,
@@ -356,49 +472,45 @@ export async function runBilling(
         },
       });
 
-      // Calculate base price
-      let basePrice = sub.plan!.price.toNumber();
+      const rated = rateInvoice({
+        subscriptionLines,
+        addOnLines,
+        overageLine,
+        overrides: overrides.map((o) => ({
+          id: o.id,
+          type: o.type,
+          valueType: o.valueType,
+          value: o.value,
+          description: o.description ?? undefined,
+        })),
+        taxRatePercent: plan.taxRate.toNumber(),
+      });
 
-      // Apply charge override
-      if (chargeOverride) {
-        if (chargeOverride.valueType === "percentage") {
-          if (chargeOverride.type === "discount") {
-            basePrice = basePrice * (1 - chargeOverride.value / 100);
-          } else {
-            basePrice = basePrice * (1 + chargeOverride.value / 100);
-          }
-        } else {
-          // flat amount
-          if (chargeOverride.type === "discount") {
-            basePrice = Math.max(0, basePrice - chargeOverride.value);
-          } else {
-            basePrice = basePrice + chargeOverride.value;
-          }
-        }
-      }
+      totalAmount += toMajor(rated.totalCents);
+      previews.push({
+        subscriberId: sub.id,
+        customerId: sub.customerId,
+        periodStart: bounds.periodStart.toISOString(),
+        periodEnd: bounds.periodEnd.toISOString(),
+        prorated: proration < 1,
+        total: toMajor(rated.totalCents),
+      });
 
       if (!dryRun) {
-        const invoice = await createInvoice({
+        await createRatedInvoice({
           tenantId,
           subscriberId: sub.id,
-          lineItems: [
-            {
-              description: `${sub.plan!.name} — ${sub.plan!.billingCycle} subscription`,
-              quantity: 1,
-              unitPrice: basePrice,
-              amount: basePrice,
-            },
-          ],
-          taxRate: sub.plan!.taxRate.toNumber(),
+          rated,
+          currency: plan.currency,
           dueInDays: 7,
-          currency: sub.plan!.currency,
-          status: INVOICE_STATUS.ISSUED,
+          periodStart: bounds.periodStart,
+          periodEnd: bounds.periodEnd,
           issuedBy,
         });
-
-        totalAmount += invoice.total.toNumber();
-      } else {
-        totalAmount += basePrice * (1 + sub.plan!.taxRate.toNumber());
+        await db.subscriber.update({
+          where: { id: sub.id },
+          data: { lastBilledAt: now },
+        });
       }
       generated++;
     } catch (err) {
@@ -409,50 +521,72 @@ export async function runBilling(
     }
   }
 
-  // 4. Auto-suspend subscribers with overdue invoices past grace period
-  if (!dryRun) {
-    const overdueSubs = await db.invoice.findMany({
-      where: {
-        tenantId,
-        status: "overdue",
-        dueDate: { lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) }, // 7 days overdue
-      },
-      select: { subscriberId: true, number: true },
-      distinct: ["subscriberId"],
-    });
+  return { generated, skipped, suspended, errors, totalAmount, previews };
+}
 
-    for (const overdue of overdueSubs) {
-      if (!overdue.subscriberId) continue;
-
-      // Check if subscriber has a post-billing grace period still active
-      const postGrace = await db.gracePeriod.findFirst({
-        where: {
-          tenantId,
-          subscriberId: overdue.subscriberId,
-          type: "post_billing",
-          status: "active",
-          endDate: { gt: now },
-        },
-      });
-
-      if (!postGrace) {
-        // No grace — auto-suspend
-        const sub = await db.subscriber.findFirst({
-          where: { id: overdue.subscriberId, tenantId, status: "active" },
-          select: { id: true, username: true },
-        });
-
-        if (sub) {
-          // Use the transition function which handles RADIUS CoA
-          const { transitionSubscriberStatus } = await import("@/core/repositories/subscriber");
-          await transitionSubscriberStatus(tenantId, sub.id, "suspended" as any, issuedBy);
-          suspended++;
-        }
-      }
-    }
+function safeParseJSON<T>(raw: string | null | undefined): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
   }
+}
 
-  return { generated, skipped, suspended, errors, totalAmount };
+/** Overage unit price (major units per GB) from system setting `billing.overagePerGb`; 0 = disabled. */
+async function getOveragePerGbCents(tenantId: string): Promise<number> {
+  const setting = await db.systemSetting.findFirst({
+    where: { tenantId, key: "billing.overagePerGb" },
+  });
+  if (!setting) return 0; // overage billing disabled unless configured
+  const v = parseFloat(setting.value);
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return Math.round(v * 100); // major units → cents
+}
+
+/** Create an invoice from a fully rated result (keeps numbering/dates in one place). */
+async function createRatedInvoice(params: {
+  tenantId: string;
+  subscriberId: string;
+  rated: { lines: RatedLineItem[]; subtotalCents: number; taxCents: number; totalCents: number };
+  currency: string;
+  dueInDays: number;
+  periodStart: Date;
+  periodEnd: Date;
+  issuedBy: string;
+}) {
+  const year = new Date().getFullYear();
+  const count = await db.invoice.count({
+    where: { number: { startsWith: `INV-${year}-` } },
+  });
+  const number = `INV-${year}-${String(count + 1).padStart(4, "0")}`;
+
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + params.dueInDays);
+
+  const invoice = await db.invoice.create({
+    data: {
+      tenantId: params.tenantId,
+      number,
+      subscriberId: params.subscriberId,
+      issueDate: new Date(),
+      dueDate,
+      subtotal: centsToDecimal(params.rated.subtotalCents),
+      taxAmount: centsToDecimal(params.rated.taxCents),
+      total: centsToDecimal(params.rated.totalCents),
+      amountPaid: new Prisma.Decimal(0),
+      status: INVOICE_STATUS.ISSUED,
+      currency: params.currency,
+      items: JSON.stringify({
+        lines: params.rated.lines,
+        periodStart: params.periodStart.toISOString(),
+        periodEnd: params.periodEnd.toISOString(),
+        issuedBy: params.issuedBy,
+      }),
+    },
+    include: INVOICE_INCLUDE,
+  });
+  return invoice;
 }
 
 export async function getBillingStats(tenantId: string) {
