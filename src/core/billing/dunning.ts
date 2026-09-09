@@ -111,20 +111,19 @@ export async function processDunningQueue(
         dunningState.escalatedTo !== "collections"
       ) {
         // Create a collections task
-        const seq = await db.collectionTask.count({
-          where: { tenantId },
-        });
         await db.collectionTask.create({
           data: {
             tenantId,
             invoiceId: invoice.id,
             subscriberId: invoice.subscriberId!,
-            taskNumber: `COL-${now.getFullYear()}-${String(seq + 1).padStart(4, "0")}`,
-            status: "open",
+            type: "final_notice",
+            status: "pending",
             amount: invoice.total,
-            assignedTo: null,
+            currency: invoice.currency,
             dueDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-            notes: `Auto-created by dunning after ${daysSinceFailure} days of non-payment on invoice ${invoice.number}`,
+            daysOverdue: daysSinceFailure,
+            contactMethod: "email",
+            contactNotes: `Auto-created by dunning after ${daysSinceFailure} days of non-payment on invoice ${invoice.number}`,
           },
         });
         collectionsCreated++;
