@@ -1,0 +1,4 @@
+ROUTE / | url=http://localhost:3000/ | dom="OK"
+ROUTE /aaa | url=http://localhost:3000/aaa/sessions | dom="OK"
+ROUTE /aaa/attributes | url=http://localhost:3000/aaa/attributes | dom="OK"
+ROUTE /aaa/captive-portal | url=http://localhost:3000/aaa/captive-portal | dom="OK"
