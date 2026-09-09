@@ -5,7 +5,7 @@
 // Run: bun tests/radius-integration.ts
 // =====================================================================
 
-import { dgram } from "node:dgram";
+import * as dgram from "node:dgram";
 import {
   PacketCode,
   Attribute,
