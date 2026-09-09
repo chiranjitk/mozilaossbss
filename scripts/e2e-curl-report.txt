@@ -3,3 +3,10 @@ OK   307 /aaa
 OK   200 /aaa/attributes
 OK   200 /aaa/captive-portal
 OK   200 /aaa/coa
+OK   200 /aaa/history
+OK   200 /aaa/logs
+OK   200 /aaa/nas
+OK   200 /aaa/proxy
+OK   200 /aaa/radius
+OK   200 /aaa/radius-tables
+OK   200 /aaa/sessions
