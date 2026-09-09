@@ -75,3 +75,7 @@ OK   200 /payments/reconciliation
 OK   200 /plans
 OK   200 /policy/bandwidth
 OK   200 /policy/firewall
+OK   200 /policy/qos
+OK   200 /policy/time-access
+OK   200 /subscribers
+FAIL  /subscribers/[id]
