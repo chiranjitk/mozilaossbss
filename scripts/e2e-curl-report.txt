@@ -56,3 +56,8 @@ FAIL 000 /network/dhcp
 OK   200 /network/dns
 FAIL 000 /network/interfaces
 FAIL 000 /network/ipam
+OK   200 /network/subnets
+OK   307 /operations
+OK   200 /operations/agents
+FAIL 000 /operations/areas
+FAIL 000 /operations/complaints
