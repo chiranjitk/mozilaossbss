@@ -322,11 +322,17 @@ describe("applyOverrides (sequential)", () => {
 // Tax + pipeline
 // ---------------------------------------------------------------------
 describe("computeTaxCents", () => {
-  test("18% GST on 49900", () => {
+  test("18 passed as percent → 18%", () => {
     expect(computeTaxCents(49900, 18)).toBe(8982);
+  });
+  test("0.18 passed as fraction (DB convention) → 18%", () => {
+    expect(computeTaxCents(49900, 0.18)).toBe(8982);
   });
   test("zero rate", () => {
     expect(computeTaxCents(49900, 0)).toBe(0);
+  });
+  test("absurd rate (>100%) → no tax", () => {
+    expect(computeTaxCents(49900, 180)).toBe(0);
   });
 });
 
