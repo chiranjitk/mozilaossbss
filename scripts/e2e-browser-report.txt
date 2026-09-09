@@ -12,3 +12,7 @@ OK   /aaa/radius | url=chrome-error://chromewebdata/
 OK   /aaa/radius-tables | url=http://localhost:3000/aaa/radius-tables
 OK   /aaa/sessions | url=http://localhost:3000/aaa/sessions
 OK   /admin/announcements | url=http://localhost:3000/admin/announcements
+OK   /admin/api-keys | url=http://localhost:3000/admin/api-keys
+OK   /admin/audit | url=http://localhost:3000/admin/audit
+OK   /admin/backup | url=http://localhost:3000/admin/backup
+OK   /admin/modules | url=http://localhost:3000/admin/modules
