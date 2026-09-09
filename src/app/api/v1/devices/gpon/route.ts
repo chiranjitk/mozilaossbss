@@ -31,7 +31,7 @@ export const GET = apiRoute(async (req: NextRequest, { requestId }) => {
         usedPorts: true,
         location: true,
         firmware: true,
-        lastUpdated: true,
+        lastSeenAt: true,
       },
     }),
     db.splitter.findMany({
