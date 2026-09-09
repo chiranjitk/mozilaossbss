@@ -7,3 +7,5 @@ OK   200 /aaa/history
 FAIL 000 /aaa/logs
 FAIL 000 /aaa/nas
 FAIL 000 /aaa/proxy
+FAIL 000 /aaa/radius
+FAIL 000 /aaa/radius-tables
