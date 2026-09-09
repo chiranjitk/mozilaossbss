@@ -106,6 +106,7 @@ model Tenant {
   wifiOffloadPeers WifiOffloadPeer[]
   knowledgeBase KnowledgeBase[]
   expenses Expense[]
+  policyDecisions PolicyDecision[]
   devices Device[]
 }
 

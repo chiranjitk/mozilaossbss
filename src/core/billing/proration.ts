@@ -139,10 +139,13 @@ export async function proratePlanChange(
   // Sync RADIUS group mapping (radusergroup) so auth picks up new plan attrs
   if (subscriber.username) {
     const newGroupName = `plan-${slugify(newPlan.name)}`;
-    await db.radUserGroup.upsert({
+    // RadUserGroup has @@unique([username, groupname]) — no unique on username
+    // alone, so delete prior mappings for this user and insert the new one.
+    await db.radUserGroup.deleteMany({
       where: { username: subscriber.username },
-      create: { username: subscriber.username, groupname: newGroupName, priority: 1 },
-      update: { groupname: newGroupName },
+    });
+    await db.radUserGroup.create({
+      data: { username: subscriber.username, groupname: newGroupName, priority: 1 },
     });
     result.newPlanName = newPlan.name;
   }
