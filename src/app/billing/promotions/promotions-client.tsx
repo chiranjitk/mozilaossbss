@@ -107,9 +107,9 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const formatCurrency = (n: number) =>
-  new Intl.NumberFormat("en-US", {
+  new Intl.NumberFormat("en-IN", {
     style: "currency",
-    currency: "USD",
+    currency: "INR",
     maximumFractionDigits: 2,
   }).format(n);
 
