@@ -1097,6 +1097,177 @@ async function main() {
   }
   console.log(`✓ ${loyaltyMembers.length} loyalty members seeded`);
 
+  // ===================================================================
+  // POLICY ENGINE DATA — bandwidth profiles, QoS queues, time access,
+  // firewall rules + full FreeRADIUS table sync (radgroupreply /
+  // radgroupcheck / radusergroup) so the policy engine works out of the box.
+  // ===================================================================
+  {
+    const policyPlans = [plan, plan2];
+    const profileDefs = [
+      {
+        plan: plan,
+        description: "Entry plan profile — 50 Mbps with burst to 75",
+        downloadSpeed: 51200, uploadSpeed: 10240,
+        downloadBurst: 76800, uploadBurst: 15360,
+        burstThreshold: 40960, burstTime: 16,
+        priority: 6, qosType: "fq_codel", rateLimit: null, ceilLimit: 61440,
+        sessionLimit: 1,
+        timeWindows: { mon: [{ start: "00:00", end: "23:59" }], tue: [{ start: "00:00", end: "23:59" }], wed: [{ start: "00:00", end: "23:59" }], thu: [{ start: "00:00", end: "23:59" }], fri: [{ start: "00:00", end: "23:59" }], sat: [{ start: "00:00", end: "23:59" }], sun: [{ start: "00:00", end: "23:59" }] },
+      },
+      {
+        plan: plan2,
+        description: "Premium plan profile — 100 Mbps with burst to 150",
+        downloadSpeed: 102400, uploadSpeed: 20480,
+        downloadBurst: 153600, uploadBurst: 30720,
+        burstThreshold: 81920, burstTime: 16,
+        priority: 3, qosType: "fq_codel", rateLimit: null, ceilLimit: 122880,
+        sessionLimit: 3,
+        timeWindows: null, // no time restriction on premium
+      },
+    ];
+
+    for (const def of profileDefs) {
+      const groupName = `plan-${def.plan.name.toLowerCase().replace(/\s+/g, "-")}`;
+
+      // Bandwidth profile
+      const bw = await db.bandwidthProfile.upsert({
+        where: { tenantId_name: { tenantId: tenant.id, name: groupName } },
+        create: {
+          tenantId: tenant.id,
+          name: groupName,
+          description: def.description,
+          downloadSpeed: def.downloadSpeed,
+          uploadSpeed: def.uploadSpeed,
+          downloadBurst: def.downloadBurst,
+          uploadBurst: def.uploadBurst,
+          burstThreshold: def.burstThreshold,
+          burstTime: def.burstTime,
+          priority: def.priority,
+          status: "active",
+        },
+        update: {},
+      });
+
+      // QoS queue for the group
+      await db.qosQueue.upsert({
+        where: { tenantId_name: { tenantId: tenant.id, name: groupName } },
+        create: {
+          tenantId: tenant.id,
+          name: groupName,
+          description: `Auto queue for ${def.plan.name}`,
+          type: def.qosType,
+          priority: def.priority,
+          rateLimit: def.rateLimit,
+          ceilLimit: def.ceilLimit,
+          quantum: 1500,
+          status: "active",
+        },
+        update: {},
+      });
+
+      // Time access profile (only when restricted)
+      if (def.timeWindows) {
+        await db.timeAccessProfile.upsert({
+          where: { tenantId_name: { tenantId: tenant.id, name: groupName } },
+          create: {
+            tenantId: tenant.id,
+            name: groupName,
+            description: `Allowed hours for ${def.plan.name}`,
+            schedule: JSON.stringify(def.timeWindows),
+            timezone: "Asia/Kolkata",
+            action: "allow",
+            status: "active",
+          },
+          update: {},
+        });
+      }
+
+      // FreeRADIUS group reply — MikroTik rate limit + WISPr bandwidth
+      const mrl = `${def.downloadSpeed / 1000}M/${def.uploadSpeed / 1000}M ${def.downloadBurst / 1000}M/${def.uploadBurst / 1000}M ${def.burstThreshold / 1000}M/${def.burstThreshold / 1000}M ${def.burstTime}`;
+      const replies: Array<[string, string]> = [
+        ["Mikrotik-Rate-Limit", mrl],
+        ["WISPr-Bandwidth-Max-Down", String(Math.round((def.downloadSpeed * 1000) / 8))],
+        ["WISPr-Bandwidth-Max-Up", String(Math.round((def.uploadSpeed * 1000) / 8))],
+        ["Idle-Timeout", "1800"],
+        ["Session-Timeout", "86400"],
+      ];
+      for (const [attribute, value] of replies) {
+        await db.radGroupReply.upsert({
+          where: { groupname_attribute: { groupname: groupName, attribute } },
+          create: { groupname: groupName, attribute, op: "=", value },
+          update: { value },
+        });
+      }
+
+      // FreeRADIUS group check — simultaneous use + optional login time
+      const checks: Array<[string, string]> = [["Simultaneous-Use", String(def.sessionLimit)]];
+      if (def.timeWindows) {
+        // Seed allows 24×7 for basic plan; no Login-Time row needed for full-day windows
+      }
+      for (const [attribute, value] of checks) {
+        await db.radGroupCheck.upsert({
+          where: { groupname_attribute: { groupname: groupName, attribute } },
+          create: { groupname: groupName, attribute, op: ":=", value },
+          update: { value },
+        });
+      }
+      void bw;
+    }
+
+    // Firewall rules — a small production-realistic baseline
+    const firewallRules = [
+      { name: "Allow DNS to resolver", action: "accept", chain: "forward", protocol: "udp", dstPort: "53", priority: 10, description: "Permit subscriber DNS egress" },
+      { name: "Block SMTP egress", action: "reject", chain: "forward", protocol: "tcp", dstPort: "25", priority: 5, description: "Anti-spam: block direct port 25" },
+      { name: "Allow established", action: "accept", chain: "forward", protocol: "any", priority: 1, description: "Stateful allow for established flows" },
+      { name: "Drop RFC1918 on WAN", action: "drop", chain: "input", protocol: "any", srcAddress: "10.0.0.0/8", priority: 2, description: "Anti-spoof on upstream" },
+      { name: "NAT masquerade", action: "masquerade", chain: "output", protocol: "any", priority: 100, description: "Subscriber NAT egress" },
+    ];
+    for (const r of firewallRules) {
+      const existing = await db.firewallRule.findFirst({
+        where: { tenantId: tenant.id, description: r.description },
+      });
+      if (existing) continue;
+      await db.firewallRule.create({
+        data: {
+          tenantId: tenant.id,
+          name: r.name,
+          action: r.action,
+          chain: r.chain,
+          protocol: r.protocol,
+          srcAddress: r.srcAddress ?? null,
+          dstPort: r.dstPort ?? null,
+          priority: r.priority,
+          description: r.description,
+          enabled: true,
+        },
+      });
+    }
+
+    // radusergroup for the seeded subscribers
+    const allSubs = await db.subscriber.findMany({ where: { tenantId: tenant.id, username: { not: null } } });
+    for (const s of allSubs) {
+      if (!s.username || !s.planId) continue;
+      const sPlan = policyPlans.find((p) => p.id === s.planId) ??
+        await db.plan.findFirst({ where: { id: s.planId } });
+      if (!sPlan) continue;
+      const groupName = `plan-${sPlan.name.toLowerCase().replace(/\s+/g, "-")}`;
+      const existing = await db.radUserGroup.findFirst({ where: { username: s.username } });
+      if (!existing) {
+        await db.radUserGroup.create({ data: { username: s.username, groupname: groupName, priority: 1 } });
+      }
+    }
+
+    // Overage rate setting consumed by the billing engine
+    await db.systemSetting.upsert({
+      where: { tenantId_key: { tenantId: tenant.id, key: "billing.overagePerGb" } },
+      create: { tenantId: tenant.id, key: "billing.overagePerGb", value: "50" },
+      update: {},
+    });
+
+    console.log(`✓ Policy engine data seeded (2 profiles, 2 QoS queues, 5 firewall rules, RADIUS group tables)`);
+  }
+
   console.log("\n🎉 Cryptsk seed complete.");
   console.log("Login: admin / admin123");
 }
