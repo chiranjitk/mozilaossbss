@@ -43,7 +43,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 
 interface DashboardData {
-  tenant: { id: string; name: string; slug: string };
+  tenant: { id: string; name: string; slug: string; currency: string; locale: string; timezone: string };
   user: { id: string; roles: string[] };
   modules: Array<{
     id: string;
@@ -81,18 +81,54 @@ async function fetchDashboard(): Promise<DashboardData> {
   return (await res.json()).data;
 }
 
-const trafficData = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${i}:00`,
-  upload: Math.round(20 + 30 * Math.sin(i / 3) + Math.random() * 15),
-  download: Math.round(60 + 50 * Math.sin(i / 3 + 1) + Math.random() * 25),
-}));
+// Real bandwidth series (last 24h, hourly buckets) — replaces mock Math.sin data.
+// Fetches both download & upload time-series from the monitoring metrics API.
+interface BandwidthPoint {
+  hour: string;
+  download: number;
+  upload: number;
+}
+async function fetchBandwidthSeries(currency: string): Promise<BandwidthPoint[]> {
+  // interval=60 → hourly buckets over the last 24h
+  const [downRes, upRes] = await Promise.all([
+    fetch("/api/v1/metrics?view=dashboard&metric=bandwidth_down&range=24h&interval=60", { cache: "no-store" }),
+    fetch("/api/v1/metrics?view=dashboard&metric=bandwidth_up&range=24h&interval=60", { cache: "no-store" }),
+  ]);
+  if (!downRes.ok || !upRes.ok) throw new Error("Failed to load bandwidth series");
+  const [downJson, upJson] = await Promise.all([downRes.json(), upRes.json()]);
+  const downPoints: Array<{ timestamp: string; value: number }> = downJson?.series?.points ?? [];
+  const upPoints: Array<{ timestamp: string; value: number }> = upJson?.series?.points ?? [];
+  // Merge by timestamp — download is the primary axis
+  const upByTime = new Map(upPoints.map((p) => [p.timestamp, p.value]));
+  const merged: BandwidthPoint[] = downPoints.map((p) => ({
+    hour: new Date(p.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    download: Number((p.value ?? 0).toFixed(1)),
+    upload: Number((upByTime.get(p.timestamp) ?? 0).toFixed(1)),
+  }));
+  return merged;
+}
 
-const formatCurrency = (n: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
+// Currency formatter driven by the tenant's configured currency (not hardcoded USD).
+const currencyCache: Record<string, Intl.NumberFormat> = {};
+const formatCurrency = (n: number, currency = "USD") => {
+  if (!currencyCache[currency]) {
+    try {
+      currencyCache[currency] = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency,
+        maximumFractionDigits: 0,
+      });
+    } catch {
+      // Fallback for invalid currency codes
+      currencyCache[currency] = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      });
+    }
+  }
+  return currencyCache[currency].format(n);
+};
 
 const formatNumber = (n: number) =>
   new Intl.NumberFormat("en-US").format(n);
@@ -102,6 +138,17 @@ export function DashboardClient() {
     queryKey: ["dashboard"],
     queryFn: fetchDashboard,
   });
+
+  // Fetch real 24h bandwidth series once we know the dashboard loaded (needs tenant currency
+  // only as a key dependency; the metrics API is independent of currency).
+  const tenantCurrency = data?.tenant.currency ?? "USD";
+  const bandwidthQuery = useQuery({
+    queryKey: ["dashboard-bandwidth-24h", tenantCurrency],
+    queryFn: () => fetchBandwidthSeries(tenantCurrency),
+    enabled: !!data,
+    refetchInterval: 60_000, // refresh every minute
+  });
+  const trafficData: BandwidthPoint[] = bandwidthQuery.data ?? [];
 
   if (isLoading) return <LoadingState label="Loading dashboard…" />;
 
@@ -157,10 +204,10 @@ export function DashboardClient() {
         />
         <MetricCard
           label="Revenue Today"
-          value={formatCurrency(data.metrics.payments.revenueToday)}
+          value={formatCurrency(data.metrics.payments.revenueToday, tenantCurrency)}
           icon={DollarSign}
           accent="success"
-          hint={`${formatCurrency(data.metrics.payments.revenueMonth)} this month · ${data.metrics.payments.paymentsToday} payments`}
+          hint={`${formatCurrency(data.metrics.payments.revenueMonth, tenantCurrency)} this month · ${data.metrics.payments.paymentsToday} payments today`}
           delta={{
             value: "Live data",
             trend: "up",
@@ -213,6 +260,11 @@ export function DashboardClient() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {trafficData.length === 0 ? (
+              <div className="flex h-[260px] items-center justify-center text-sm text-muted-foreground">
+                {bandwidthQuery.isLoading ? "Loading bandwidth…" : bandwidthQuery.isError ? "Failed to load bandwidth" : "No bandwidth data yet"}
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height={260}>
               <AreaChart data={trafficData} margin={{ left: -16, right: 8, top: 8 }}>
                 <defs>
@@ -264,6 +316,7 @@ export function DashboardClient() {
                 />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 

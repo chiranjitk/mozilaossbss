@@ -1721,3 +1721,19 @@ Stage Summary:
     * /home/z/my-project/qa-screenshots/08-ai-advisor.png
     * /home/z/my-project/qa-screenshots/09-subscribers-list.png
     * /home/z/my-project/qa-screenshots/10-subscribers-search.png
+
+---
+Task ID: 371079
+Agent: cron-autopush
+Task: One-shot git auto-commit-and-push cycle
+
+Work Log:
+- Verified no .git/index.lock present
+- git status showed 4 entries (worklog.md, README.md, qa-screenshots/, tool-results/)
+- Added qa-screenshots/ and tool-results/ to .gitignore (agent artifacts, matches commit 67db7ce hygiene)
+- Verified no GitHub token present in committed files
+- Staged, committed, pushed to origin main
+
+Stage Summary:
+- Commit 3971bbf pushed to https://github.com/chiranjitk/mozilaossbss (4 files, 230 insertions)
+- Repo hygiene: agent artifact dirs now permanently ignored
