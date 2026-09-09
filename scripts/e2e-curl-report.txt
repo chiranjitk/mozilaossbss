@@ -70,3 +70,12 @@ OK   200 /operations/referrals
 OK   200 /operations/resellers
 OK   200 /operations/technicians
 OK   200 /payments
+OK   200 /payments/gateways
+FAIL 000 /payments/reconciliation
+FAIL 000 /plans
+FAIL 000 /policy/bandwidth
+FAIL 000 /policy/firewall
+FAIL 000 /policy/qos
+FAIL 000 /policy/time-access
+FAIL 000 /subscribers
+FAIL  /subscribers/[id]
