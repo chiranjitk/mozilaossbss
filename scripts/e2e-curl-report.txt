@@ -24,3 +24,8 @@ OK   200 /ai/advisor
 OK   200 /ai/churn
 OK   200 /ai/diagnosis
 --- restarting next-server (memory guard) at route #24 ---
+OK   307 /billing
+OK   200 /billing/add-ons
+OK   200 /billing/charge-overrides
+OK   200 /billing/credit-notes
+OK   200 /billing/engines
