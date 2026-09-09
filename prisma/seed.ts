@@ -1244,7 +1244,7 @@ async function main() {
       });
     }
 
-    // radusergroup for the seeded subscribers
+    // radusergroup for the seeded subscribers + backfill radcheck auth rows
     const allSubs = await db.subscriber.findMany({ where: { tenantId: tenant.id, username: { not: null } } });
     for (const s of allSubs) {
       if (!s.username || !s.planId) continue;
@@ -1255,6 +1255,14 @@ async function main() {
       const existing = await db.radUserGroup.findFirst({ where: { username: s.username } });
       if (!existing) {
         await db.radUserGroup.create({ data: { username: s.username, groupname: groupName, priority: 1 } });
+      }
+      // Backfill the per-user auth row so the RADIUS server can verify PAP
+      // (plaintext is only known at provisioning time — seed uses subscriber123)
+      const hasAuth = await db.radCheck.findFirst({ where: { username: s.username, attribute: "Cleartext-Password" } });
+      if (!hasAuth && ["rahul.sharma", "priya.patel", "amit.kumar"].includes(s.username)) {
+        await db.radCheck.create({
+          data: { username: s.username, attribute: "Cleartext-Password", op: ":=", value: "subscriber123" },
+        });
       }
     }
 
