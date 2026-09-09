@@ -61,3 +61,6 @@ OK   /network/dhcp | url=http://localhost:3000/network/dhcp
 OK   /network/dns | url=http://localhost:3000/network/dns
 OK   /network/interfaces | url=http://localhost:3000/network/interfaces
 OK   /network/ipam | url=http://localhost:3000/network/ipam
+OK   /network/subnets | url=http://localhost:3000/network/subnets
+OK   /operations | url=http://localhost:3000/operations/complaints
+--- server restart at page #60 ---
