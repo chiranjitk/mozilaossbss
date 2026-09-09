@@ -50,3 +50,5 @@ FAIL 000 /monitoring/alerts
 OK   200 /monitoring/bandwidth
 OK   200 /monitoring/syslog
 FAIL 000 /monitoring/traffic
+FAIL 000 /monitoring/uptime
+FAIL 000 /network
