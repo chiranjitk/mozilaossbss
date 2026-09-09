@@ -24,3 +24,10 @@ OK   /ai | url=http://localhost:3000/ai/advisor
 OK   /ai/advisor | url=http://localhost:3000/ai/advisor
 OK   /ai/churn | url=http://localhost:3000/ai/churn
 OK   /ai/diagnosis | url=http://localhost:3000/ai/diagnosis
+OK   /billing | url=http://localhost:3000/billing/invoices
+OK   /billing/add-ons | url=http://localhost:3000/billing/add-ons
+OK   /billing/charge-overrides | url=http://localhost:3000/billing/charge-overrides
+OK   /billing/credit-notes | url=http://localhost:3000/billing/credit-notes
+OK   /billing/engines | url=http://localhost:3000/billing/engines
+OK   /billing/grace-periods | url=http://localhost:3000/billing/grace-periods
+--- server restart at page #30 ---
