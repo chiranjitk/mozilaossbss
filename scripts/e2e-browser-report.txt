@@ -16,3 +16,7 @@ OK   /admin/api-keys | url=http://localhost:3000/admin/api-keys
 OK   /admin/audit | url=http://localhost:3000/admin/audit
 OK   /admin/backup | url=http://localhost:3000/admin/backup
 OK   /admin/modules | url=http://localhost:3000/admin/modules
+OK   /admin/roles | url=http://localhost:3000/admin/roles
+OK   /admin/settings | url=http://localhost:3000/admin/settings
+OK   /admin/users | url=http://localhost:3000/admin/users
+--- server restart at page #20 ---
