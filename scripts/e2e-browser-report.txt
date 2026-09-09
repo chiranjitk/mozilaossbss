@@ -1,3 +1,11 @@
 OK   / | url=http://localhost:3000/
 OK   /aaa | url=http://localhost:3000/aaa/sessions
 OK   /aaa/attributes | url=http://localhost:3000/aaa/attributes
+OK   /aaa/captive-portal | url=http://localhost:3000/aaa/captive-portal
+OK   /aaa/coa | url=chrome-error://chromewebdata/
+OK   /aaa/history | url=chrome-error://chromewebdata/
+OK   /aaa/logs | url=chrome-error://chromewebdata/
+OK   /aaa/nas | url=chrome-error://chromewebdata/
+OK   /aaa/proxy | url=chrome-error://chromewebdata/
+OK   /aaa/radius | url=chrome-error://chromewebdata/
+--- server restart at page #10 ---
