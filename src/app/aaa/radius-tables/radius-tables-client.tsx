@@ -63,7 +63,6 @@ export function RadiusTablesClient() {
       <PageHeader
         title="FreeRADIUS Tables"
         description="Live view of the tables the RADIUS server reads at Access-Request time. Policy objects (bandwidth, QoS, time access) sync here automatically."
-        icon={Database}
       />
 
       {/* Sync health summary */}
@@ -130,7 +129,7 @@ export function RadiusTablesClient() {
           {isLoading ? (
             <LoadingState label="Loading tables…" />
           ) : isError ? (
-            <ErrorState message="Could not load RADIUS tables" onRetry={() => refetch()} />
+            <ErrorState title="Could not load RADIUS tables" onRetry={() => refetch()} />
           ) : !data || data.rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
               <Database className="mb-2 h-8 w-8 text-muted-foreground" aria-hidden />

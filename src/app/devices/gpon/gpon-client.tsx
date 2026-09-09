@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/common/status-badge";
-import { Cable, Network, Split } from "lucide-react";
+import { Network, Split } from "lucide-react";
 
 interface Olt {
   id: string;
@@ -64,15 +64,14 @@ export function GponClient() {
       <PageHeader
         title="GPON / OLT"
         description="Optical line terminals and passive splitter plant. Port utilisation updates every 30 seconds."
-        icon={Cable}
       />
 
       {isLoading ? (
         <LoadingState label="Loading GPON infrastructure…" />
       ) : isError ? (
-        <ErrorState message="Could not load GPON infrastructure" onRetry={() => refetch()} />
+        <ErrorState title="Could not load GPON infrastructure" onRetry={() => refetch()} />
       ) : !data ? (
-        <ErrorState message="No data available" onRetry={() => refetch()} />
+        <ErrorState title="No data available" onRetry={() => refetch()} />
       ) : (
         <>
           {/* Fleet summary */}
