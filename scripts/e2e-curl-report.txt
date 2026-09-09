@@ -66,3 +66,7 @@ OK   200 /operations/installations
 OK   200 /operations/inventory
 OK   200 /operations/leads
 OK   200 /operations/loyalty
+OK   200 /operations/referrals
+OK   200 /operations/resellers
+OK   200 /operations/technicians
+OK   200 /payments
