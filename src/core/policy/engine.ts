@@ -243,6 +243,7 @@ export async function evaluateSubscriberPolicy(
 
   // 8. FUP — fair usage policy (cap: plan.dataCap, overridable per-subscriber)
   const effectiveCapMb = overrides.dataCapOverrideMb ?? plan?.dataCap ?? null;
+  const anchor = subscriber.billingAnchorDate ?? subscriber.createdAt;
   const fup = await evaluateFup(
     tenantId,
     subscriberId,
