@@ -348,7 +348,7 @@ describe("rateInvoice (full pipeline)", () => {
         kind: "overage",
       },
       overrides: [{ id: "d1", type: "discount", valueType: "percentage", value: 10 }],
-      taxRatePercent: 18,
+      taxRate: 18,
     });
     // gross = 79900 + 10000 = 89900 → −10% = 80910 → +18% tax = 80910 + 14564 = 95474
     expect(rated.subtotalCents).toBe(80910);
@@ -361,7 +361,7 @@ describe("rateInvoice (full pipeline)", () => {
     const rated = rateInvoice({
       subscriptionLines: [{ description: "x", quantity: 1, unitPrice: 1, amount: 1, kind: "subscription" }],
       overrides: [{ id: "d1", type: "discount", valueType: "flat", value: 100 }],
-      taxRatePercent: 18,
+      taxRate: 18,
     });
     expect(rated.subtotalCents).toBe(0);
     expect(rated.totalCents).toBe(0);
