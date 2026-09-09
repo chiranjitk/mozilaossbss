@@ -46,3 +46,7 @@ OK   /devices/mikrotik | url=http://localhost:3000/devices/mikrotik
 OK   /devices/snmp | url=http://localhost:3000/devices/snmp
 OK   /finance | url=http://localhost:3000/finance/revenue
 OK   /finance/collections | url=http://localhost:3000/finance/collections
+OK   /finance/revenue | url=http://localhost:3000/finance/revenue
+OK   /finance/tax | url=http://localhost:3000/finance/tax
+OK   /login | url=http://localhost:3000/login
+OK   /monitoring | url=http://localhost:3000/monitoring/bandwidth
