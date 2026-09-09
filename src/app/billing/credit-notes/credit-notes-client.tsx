@@ -225,9 +225,8 @@ export function CreditNotesClient() {
         id: "amount",
         header: "Amount",
         cell: ({ row }) => (
-          <span className="text-sm tabular-nums font-medium flex items-center">
-            <DollarSign className="h-3 w-3 text-muted-foreground mr-0.5" />
-            {row.original.amount.toFixed(2)}
+          <span className="text-sm tabular-nums font-medium">
+            {formatCurrency(row.original.amount)}
           </span>
         ),
       },

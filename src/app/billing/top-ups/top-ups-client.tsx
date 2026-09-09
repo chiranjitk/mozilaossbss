@@ -272,9 +272,8 @@ export function TopUpsClient() {
         id: "price",
         header: "Price",
         cell: ({ row }) => (
-          <span className="text-sm tabular-nums flex items-center">
-            <DollarSign className="h-3 w-3 text-muted-foreground mr-0.5" />
-            {row.original.price.toFixed(2)}
+          <span className="text-sm tabular-nums font-medium">
+            {formatCurrency(row.original.price)}
           </span>
         ),
       },
