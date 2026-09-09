@@ -2058,3 +2058,20 @@ Top 3 critical fix recommendations:
 3. Standardize AR Aging tab currency rendering (BUG 3) — minor, fold into the same currency-unification pass.
 
 Overall: Billing section is functionally complete and renders real data end-to-end with zero runtime errors. Currency consistency is the main UX debt. Dev server is stable once restarted; no other infrastructure issues observed.
+
+---
+Task ID: e2e-full-20260910
+Agent: main (Z.ai Code)
+Task: "please test full ui e2e — future needs 100% ready — and push to github"
+
+Work Log:
+- Full UI E2E across the entire app (82 routes from find src/app -name page.tsx).
+- FOUND + FIXED 1 real bug: /devices/snmp/page.tsx imported ./snmp-client which never existed (Module not found). In Next.js dev this compile error POISONED the whole server — even /login and /api/auth/session started returning 500. Created src/app/devices/snmp/snmp-client.tsx (mirrors mikrotik-client.tsx: list/add/edit/delete/poll SNMP devices via /api/v1/devices?type=snmp, masked community-string reveal, KPI cards, status filter, DataTable, DeviceForm defaultType=snmp).
+- Phase 1 (curl SSR smoke, session cookie): all 82 routes → 200 (incl. /subscribers/[id] with real ID cmtr89dqo000ypfmkvv49ofpf).
+- Phase 2 (browser E2E via agent-browser, login → crawl every page, agent-browser errors after each): ALL pages zero JS errors. Verified dashboard (full nav: Administration/Customers/AAA/Network/Policy/Monitoring/Billing...), subscriber detail (real data), /billing/engines (all 7 tabs: Policy|FUP|Proration|Dunning|Tax|AR Aging|Prepaid).
+- bun test: 56/56 pass. tests/radius-integration.ts: real UDP Access-Request → Access-Accept with Mikrotik-Rate-Limit VSA 102.4M/20.48M..., bad/unknown user → Access-Reject. Lint: 0 errors.
+- OOM LESSON (critical for 4GB sandbox): dev-server OOM-killer died twice mid-crawl (next-server RSS hit 2.5GB; kernel oom-kill logged). NODE_OPTIONS heap cap alone is NOT enough — dev-mode page compilation accumulates module graphs. Robust pattern used in scripts/e2e-curl.sh + scripts/e2e-browser.sh: restart server every 10-12 routes (start-stop-daemon, heap 1024MB), retry-once on transient failure. With batching: 100% pass.
+- Test scripts persisted: scripts/e2e-curl.sh (SSR smoke), scripts/e2e-browser.sh + e2e-browser-continued.sh (JS-error crawl), reports in scripts/e2e-*-report.txt.
+
+Stage Summary:
+- Full UI E2E: 82/82 routes healthy server-side, 82/82 browser-verified with zero client JS errors, 56/56 unit tests, RADIUS UDP integration verified, lint clean. One missing-file bug fixed (snmp-client). App is E2E-green and pushed to GitHub.
