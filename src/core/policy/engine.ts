@@ -112,7 +112,12 @@ const PRIORITY_TO_DSCP: Record<number, number> = {
 export async function evaluateSubscriberPolicy(
   tenantId: string,
   subscriberId: string,
-  options?: { usageOverrideMb?: number }
+  options?: {
+    usageOverrideMb?: number;
+    context?: string; // auth | api | enforcement | coa | scheduled
+    persist?: boolean; // persist a PolicyDecision row
+    actorUserId?: string;
+  }
 ): Promise<EffectivePolicy> {
   // 1. Load subscriber + plan
   const subscriber = await db.subscriber.findFirst({
@@ -137,6 +142,9 @@ export async function evaluateSubscriberPolicy(
   if (!subscriber) {
     throw new Error(`Subscriber ${subscriberId} not found`);
   }
+
+  // 1b. Subscriber-level policy overrides (from Subscriber.policyOverrides JSON)
+  const overrides = parsePolicyOverrides(subscriber.policyOverrides);
 
   // 2. Resolve the RADIUS group from radusergroup
   const radUserGroup = subscriber.username
@@ -168,6 +176,14 @@ export async function evaluateSubscriberPolicy(
     uploadKbps: plan?.uploadSpeed ?? 0,
   };
 
+  // 4b. Apply subscriber-level speed caps (overrides never raise above profile)
+  if (overrides.downloadKbpsCap != null) {
+    rateLimit.downloadKbps = Math.min(rateLimit.downloadKbps, overrides.downloadKbpsCap);
+  }
+  if (overrides.uploadKbpsCap != null) {
+    rateLimit.uploadKbps = Math.min(rateLimit.uploadKbps, overrides.uploadKbpsCap);
+  }
+
   // 5. Try to enrich rate from a BandwidthProfile matching the RADIUS group
   //    (the bandwidth API creates group "plan-<name>" on profile creation)
   if (radiusGroup) {
@@ -190,6 +206,13 @@ export async function evaluateSubscriberPolicy(
         burstThresholdKbps: bwProfile.burstThreshold,
         burstTimeSec: bwProfile.burstTime,
       };
+      // Re-apply subscriber caps on top of the profile
+      if (overrides.downloadKbpsCap != null) {
+        rateLimit.downloadKbps = Math.min(rateLimit.downloadKbps, overrides.downloadKbpsCap);
+      }
+      if (overrides.uploadKbpsCap != null) {
+        rateLimit.uploadKbps = Math.min(rateLimit.uploadKbps, overrides.uploadKbpsCap);
+      }
     }
   }
 
@@ -212,12 +235,22 @@ export async function evaluateSubscriberPolicy(
   // 7. Time access — check if access is allowed RIGHT NOW
   const timeAccess = await evaluateTimeAccess(tenantId, radiusGroup);
 
-  // 8. FUP — fair usage policy
+  // 7b. Subscriber-level alwaysAllow override (VIP whitelist)
+  if (overrides.alwaysAllow === true) {
+    timeAccess.allowed = true;
+    timeAccess.reason = "no_profile";
+  }
+
+  // 8. FUP — fair usage policy (cap: plan.dataCap, overridable per-subscriber)
+  const effectiveCapMb = overrides.dataCapOverrideMb ?? plan?.dataCap ?? null;
   const fup = await evaluateFup(
     tenantId,
     subscriberId,
-    plan?.dataCap ?? null,
-    options?.usageOverrideMb
+    effectiveCapMb,
+    options?.usageOverrideMb,
+    plan?.billingCycle ?? null,
+    anchor,
+    overrides.fupThrottleKbps
   );
 
   // 9. Determine enforcement action + apply FUP throttle if needed
@@ -239,11 +272,12 @@ export async function evaluateSubscriberPolicy(
   } else if (fup.throttled) {
     enforcement = "throttle";
     // Apply FUP throttle rate — overrides the normal rate limit
+    // Default throttle: 25% of normal (floor 1 Mbps); configurable per-subscriber
+    const pctDown = overrides.fupThrottleKbps ?? Math.max(1024, Math.round(rateLimit.downloadKbps * 0.25));
+    const pctUp = overrides.fupThrottleKbps ?? Math.max(512, Math.round(rateLimit.uploadKbps * 0.25));
     rateLimit = {
-      downloadKbps: fup.throttledRateKbps ?? Math.round(rateLimit.downloadKbps * 0.25),
-      uploadKbps: fup.throttledRateKbps
-        ? Math.round(fup.throttledRateKbps * 0.2)
-        : Math.round(rateLimit.uploadKbps * 0.25),
+      downloadKbps: pctDown,
+      uploadKbps: pctUp,
     };
     summaryParts.push(
       `FUP throttled ${fup.utilizationPct.toFixed(0)}% of ${fup.capMb}MB cap`
@@ -260,7 +294,7 @@ export async function evaluateSubscriberPolicy(
 
   const summary = summaryParts.join(" · ");
 
-  return {
+  const policy: EffectivePolicy = {
     subscriberId: subscriber.id,
     username: subscriber.username,
     customerId: subscriber.customerId,
@@ -277,6 +311,55 @@ export async function evaluateSubscriberPolicy(
     summary,
     evaluatedAt: new Date(),
   };
+
+  // 10. Persist decision (compliance / traceability)
+  if (options?.persist) {
+    try {
+      await db.policyDecision.create({
+        data: {
+          tenantId,
+          subscriberId: subscriber.id,
+          username: subscriber.username,
+          context: options.context ?? "api",
+          decision:
+            enforcement === "block" ? "deny" : enforcement === "throttle" ? "allow_degraded" : "allow",
+          reason: summary,
+          result: JSON.stringify(policy),
+        },
+      });
+    } catch {
+      // decision persistence must never break enforcement
+    }
+  }
+
+  return policy;
+}
+
+// ---------------------------------------------------------------------
+// Subscriber policy overrides parser
+// ---------------------------------------------------------------------
+export interface SubscriberPolicyOverrides {
+  downloadKbpsCap?: number | null;
+  uploadKbpsCap?: number | null;
+  dataCapOverrideMb?: number | null;
+  fupThrottleKbps?: number | null;
+  alwaysAllow?: boolean;
+}
+
+function parsePolicyOverrides(raw: string | null | undefined): SubscriberPolicyOverrides {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: SubscriberPolicyOverrides = {};
+    if (typeof parsed.downloadKbpsCap === "number") out.downloadKbpsCap = parsed.downloadKbpsCap;
+    if (typeof parsed.uploadKbpsCap === "number") out.uploadKbpsCap = parsed.uploadKbpsCap;
+    if (typeof parsed.dataCapOverrideMb === "number") out.dataCapOverrideMb = parsed.dataCapOverrideMb;
+    if (typeof parsed.fupThrottleKbps === "number") out.fupThrottleKbps = parsed.fupThrottleKbps;
+    if (typeof parsed.alwaysAllow === "boolean") out.alwaysAllow = parsed.alwaysAllow;
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 // ---------------------------------------------------------------------
