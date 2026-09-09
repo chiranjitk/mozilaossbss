@@ -325,7 +325,7 @@ export function isWithinLoginTime(expr: string, now: Date): boolean {
   const minutes = now.getHours() * 60 + now.getMinutes();
 
   for (const entry of entries) {
-    const m = entry.match(/^(any|su|mo|tu|we|th|fr|sa)(\d{4})?(\d{4})?$/i);
+    const m = entry.match(/^(any|su|mo|tu|we|th|fr|sa)(\d{4})?-?(\d{4})?$/i);
     if (!m) continue;
     const dayPart = m[1].toLowerCase();
     if (dayPart !== "any" && DAY_MAP[dayPart] !== day) continue;
