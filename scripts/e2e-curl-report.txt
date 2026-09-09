@@ -52,3 +52,7 @@ OK   200 /monitoring/syslog
 FAIL 000 /monitoring/traffic
 FAIL 000 /monitoring/uptime
 FAIL 000 /network
+FAIL 000 /network/dhcp
+OK   200 /network/dns
+FAIL 000 /network/interfaces
+FAIL 000 /network/ipam
