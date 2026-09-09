@@ -245,3 +245,49 @@ async function nextCreditNoteSeq(tenantId: string): Promise<number> {
   });
   return count + 1;
 }
+
+/**
+ * Create a minimal invoice (issued, due in 7 days) so a proration credit
+ * note or line item has a valid parent record. Used when no open invoice
+ * exists yet for the current billing cycle.
+ */
+async function createStubInvoice(
+  tenantId: string,
+  subscriberId: string,
+  now: Date,
+  plan: { name: string; price: Prisma.Decimal; taxRate: Prisma.Decimal; currency: string },
+  issuedBy: string
+) {
+  const year = now.getFullYear();
+  const count = await db.invoice.count({
+    where: { tenantId, number: { startsWith: `INV-${year}-` } },
+  });
+  const number = `INV-${year}-${String(count + 1).padStart(4, "0")}`;
+  const dueDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return db.invoice.create({
+    data: {
+      tenantId,
+      number,
+      subscriberId,
+      issueDate: now,
+      dueDate,
+      subtotal: plan.price,
+      taxAmount: new Prisma.Decimal(
+        plan.price.toNumber() * (plan.taxRate.toNumber() / 100)
+      ),
+      total: new Prisma.Decimal(
+        plan.price.toNumber() * (1 + plan.taxRate.toNumber() / 100)
+      ),
+      status: "issued",
+      currency: plan.currency,
+      items: JSON.stringify([
+        {
+          description: `${plan.name} — subscription (proration anchor)`,
+          quantity: 1,
+          unitPrice: plan.price.toNumber(),
+          amount: plan.price.toNumber(),
+        },
+      ]),
+    },
+  });
+}
