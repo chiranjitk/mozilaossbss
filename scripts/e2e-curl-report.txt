@@ -37,3 +37,9 @@ OK   200 /billing/top-ups
 OK   200 /billing/vouchers
 OK   307 /communication
 --- restarting next-server (memory guard) at route #36 ---
+OK   200 /communication/rules
+OK   200 /communication/templates
+OK   307 /devices
+OK   200 /devices/gpon
+OK   200 /devices/mikrotik
+OK   200 /devices/snmp
