@@ -260,10 +260,13 @@ export function applyOverrides(
 // Tax + totals
 // ---------------------------------------------------------------------
 
-/** Tax in cents from a taxRate expressed as a percentage (e.g. 18 → 18%). */
-export function computeTaxCents(subtotalCents: number, taxRatePercent: number): number {
-  const pct = Math.max(0, taxRatePercent);
-  return Math.round((subtotalCents * pct) / 100);
+/** Tax in cents. Accepts the DB convention (fraction: 0.18 = 18%) or percent (18 = 18%). */
+export function computeTaxCents(subtotalCents: number, taxRate: number): number {
+  if (!Number.isFinite(taxRate) || taxRate <= 0) return 0;
+  // DB stores fractions (0.18 = 18%). Values > 1 are treated as percent (18 = 18%).
+  const rate = taxRate > 1 ? taxRate / 100 : taxRate;
+  if (rate > 1) return 0; // absurd (e.g. 180 passed) → no tax rather than wild charge
+  return Math.round(subtotalCents * rate);
 }
 
 export interface RatedInvoice {
@@ -282,7 +285,7 @@ export function rateInvoice(params: {
   addOnLines?: RatedLineItem[];
   overageLine?: RatedLineItem | null;
   overrides?: OverrideLike[];
-  taxRatePercent: number;
+  taxRate: number;
 }): RatedInvoice {
   const lines: RatedLineItem[] = [
     ...params.subscriptionLines,
@@ -295,7 +298,7 @@ export function rateInvoice(params: {
   const allLines = [...lines, ...overrideLines];
 
   const subtotalCents = resultCents;
-  const taxCents = computeTaxCents(subtotalCents, params.taxRatePercent);
+  const taxCents = computeTaxCents(subtotalCents, params.taxRate);
   const totalCents = subtotalCents + taxCents;
 
   return { lines: allLines, subtotalCents, taxCents, totalCents };

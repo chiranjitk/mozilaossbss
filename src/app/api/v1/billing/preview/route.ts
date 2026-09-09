@@ -114,7 +114,7 @@ export const GET = apiRoute(async (req: NextRequest) => {
       value: o.value,
       description: o.description ?? undefined,
     })),
-    taxRatePercent: plan.taxRate.toNumber(),
+    taxRate: plan.taxRate.toNumber(),
   });
 
   return ok({
@@ -133,7 +133,7 @@ export const GET = apiRoute(async (req: NextRequest) => {
       currency: plan.currency,
       billingCycle: cycle,
       dataCapMb: plan.dataCap,
-      taxRatePercent: plan.taxRate.toNumber(),
+      taxRate: plan.taxRate.toNumber(),
     },
     cycle: {
       periodStart: bounds.periodStart.toISOString(),

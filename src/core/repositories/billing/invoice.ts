@@ -483,7 +483,7 @@ export async function runBilling(
           value: o.value,
           description: o.description ?? undefined,
         })),
-        taxRatePercent: plan.taxRate.toNumber(),
+        taxRate: plan.taxRate.toNumber(),
       });
 
       totalAmount += toMajor(rated.totalCents);
