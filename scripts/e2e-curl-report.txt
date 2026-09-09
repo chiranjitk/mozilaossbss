@@ -38,3 +38,11 @@ FAIL 000 /communication/rules
 FAIL 000 /communication/templates
 FAIL 000 /devices
 FAIL 000 /devices/gpon
+FAIL 000 /devices/mikrotik
+FAIL 000 /devices/snmp
+FAIL 000 /finance
+FAIL 000 /finance/collections
+FAIL 000 /finance/revenue
+FAIL 000 /finance/tax
+FAIL 000 /login
+FAIL 000 /monitoring
