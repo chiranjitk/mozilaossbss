@@ -79,3 +79,4 @@ OK   /operations/technicians | url=http://localhost:3000/operations/technicians
 OK   /payments | url=http://localhost:3000/payments
 OK   /payments/gateways | url=http://localhost:3000/payments/gateways
 OK   /payments/reconciliation | url=http://localhost:3000/payments/reconciliation
+OK   /plans | url=http://localhost:3000/plans
